@@ -1003,6 +1003,7 @@ git commit -m "feat: add storefront locale shell"
 - Create: `apps/storefront/src/components/category-tile.tsx`
 - Create: `apps/storefront/src/components/product-card.tsx`
 - Create: `apps/storefront/src/components/home-page.tsx`
+- Create: `apps/storefront/src/components/home-page.test.tsx`
 - Modify: `apps/storefront/app/[locale]/layout.tsx`
 - Modify: `apps/storefront/app/[locale]/page.tsx`
 - Modify: `apps/storefront/app/globals.css`
@@ -1011,7 +1012,45 @@ git commit -m "feat: add storefront locale shell"
 - Consumes: `categories`, `products`, `serviceEntries`, `formatPrice`, `localize`, `t`, and `Locale`.
 - Produces: reusable `SiteHeader`, `CategoryTile`, `ProductCard`, and `HomePage` components.
 
-- [ ] **Step 1: Create header and card components**
+- [ ] **Step 1: Write the failing homepage composition tests**
+
+Create `apps/storefront/src/components/home-page.test.tsx`:
+
+```tsx
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+import { HomePage } from "./home-page"
+import { SiteHeader } from "./site-header"
+
+describe("Fotomax homepage composition", () => {
+  it("renders English commerce paths without dead controls", () => {
+    const header = renderToStaticMarkup(<SiteHeader locale="en" />)
+    const page = renderToStaticMarkup(<HomePage locale="en" />)
+
+    expect(header).toContain('href="/en/categories/photo-print"')
+    expect(header).toContain('href="/en/services/store-pickup"')
+    expect(header).not.toContain('aria-label="Search"')
+    expect(page).toContain("Photo life, from prints to gifts in one modern shop.")
+    expect(page).toContain("Popular products and services")
+  })
+
+  it("renders Traditional Chinese category and service copy", () => {
+    const page = renderToStaticMarkup(<HomePage locale="zh-HK" />)
+
+    expect(page).toContain("影像生活，由沖印到禮物一站完成。")
+    expect(page).toContain("熱門產品及服務")
+    expect(page).toContain("下一階段推出")
+  })
+})
+```
+
+- [ ] **Step 2: Run the failing homepage composition tests**
+
+Run: `npm run test --workspace @fotomax/storefront`
+
+Expected: FAIL because `HomePage` and `SiteHeader` do not exist yet.
+
+- [ ] **Step 3: Create header and card components**
 
 Create `apps/storefront/src/components/site-header.tsx`:
 
@@ -1112,7 +1151,7 @@ export function ProductCard({ product, locale }: { product: Product; locale: Loc
 }
 ```
 
-- [ ] **Step 2: Create homepage component**
+- [ ] **Step 4: Create homepage component**
 
 Create `apps/storefront/src/components/home-page.tsx`:
 
@@ -1211,7 +1250,7 @@ export function HomePage({ locale }: { locale: Locale }) {
 }
 ```
 
-- [ ] **Step 3: Wire header and homepage routes**
+- [ ] **Step 5: Wire header and homepage routes**
 
 Modify `apps/storefront/app/[locale]/layout.tsx` to:
 
@@ -1268,7 +1307,7 @@ export default async function LocaleHomePage({ params }: { params: Promise<{ loc
 }
 ```
 
-- [ ] **Step 4: Replace global CSS with complete responsive styles**
+- [ ] **Step 6: Replace global CSS with complete responsive styles**
 
 Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these additional selectors:
 
@@ -1584,17 +1623,17 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 }
 ```
 
-- [ ] **Step 5: Verify homepage**
+- [ ] **Step 7: Verify homepage**
 
 Run: `npm run test --workspace @fotomax/storefront`
 
-Expected: PASS.
+Expected: PASS with 5 tests across locale helpers and homepage composition.
 
 Run: `npm run build --workspace @fotomax/storefront`
 
 Expected: PASS and includes static routes for `/zh-HK` and `/en`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/storefront
