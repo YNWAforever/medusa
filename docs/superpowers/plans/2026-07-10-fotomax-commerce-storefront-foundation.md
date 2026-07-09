@@ -2239,6 +2239,7 @@ git commit -m "feat: add storefront catalog routes"
 - Create: `apps/storefront/src/components/cart-provider.tsx`
 - Create: `apps/storefront/src/components/add-to-cart-button.tsx`
 - Create: `apps/storefront/src/components/cart-drawer.tsx`
+- Create: `apps/storefront/src/components/cart-components.test.tsx`
 - Create: `apps/storefront/src/components/service-entry-page.tsx`
 - Create: `apps/storefront/app/[locale]/cart/page.tsx`
 - Create: `apps/storefront/app/[locale]/services/[handle]/page.tsx`
@@ -2287,7 +2288,22 @@ export function getCartSubtotal(items: CartItem[]): number {
 }
 ```
 
-- [ ] **Step 3: Create cart provider and add-to-cart button**
+- [ ] **Step 3: Write failing cart composition tests**
+
+Create `apps/storefront/src/components/cart-components.test.tsx` before the cart components. Use static server rendering to cover:
+
+- an empty provider renders no cart drawer;
+- an `initialItems` provider renders a localized drawer name, quantity, subtotal, clear-cart accessible name, and localized cart destination;
+- the add-to-cart button and product detail expose an enabled localized command with polite status semantics;
+- English and Traditional Chinese cart/service pages have one `h1`, the main-content target, honest coming-soon copy, and working localized destinations;
+- no shopper-visible `next phase`, Medusa, implementation terminology, or fake controls;
+- cart/drawer controls meet the 44px CSS contract and have visible hover/focus states.
+
+Run: `npm.cmd run test --workspace @fotomax/storefront -- src/components/cart-components.test.tsx`
+
+Expected: FAIL because the cart and service components do not exist.
+
+- [ ] **Step 4: Create cart provider and add-to-cart button**
 
 Create `apps/storefront/src/components/cart-provider.tsx`:
 
@@ -2306,8 +2322,8 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([])
+export function CartProvider({ children, initialItems = [] }: { children: React.ReactNode; initialItems?: CartItem[] }) {
+  const [items, setItems] = useState<CartItem[]>(initialItems)
 
   const value = useMemo<CartContextValue>(
     () => ({
@@ -2357,14 +2373,14 @@ export function AddToCartButton({ product, locale }: { product: Product; locale:
         setAdded(true)
       }}
     >
-      <ShoppingBag size={18} />
-      {added ? t(locale, "addedToCart") : t(locale, "addToCart")}
+      <ShoppingBag size={18} aria-hidden="true" />
+      <span aria-live="polite">{added ? t(locale, "addedToCart") : t(locale, "addToCart")}</span>
     </button>
   )
 }
 ```
 
-- [ ] **Step 4: Create cart drawer and cart route**
+- [ ] **Step 5: Create cart drawer and cart route**
 
 Create `apps/storefront/src/components/cart-drawer.tsx`:
 
@@ -2390,11 +2406,11 @@ export function CartDrawer({ locale }: { locale: Locale }) {
     <aside className="cart-drawer" aria-label={t(locale, "cart")}>
       <div className="cart-drawer-header">
         <strong>
-          <ShoppingBag size={18} />
+          <ShoppingBag size={18} aria-hidden="true" />
           {t(locale, "cart")}
         </strong>
         <button type="button" onClick={clearCart} aria-label={locale === "zh-HK" ? "清空購物車" : "Clear cart"}>
-          <Trash2 size={16} />
+          <Trash2 size={16} aria-hidden="true" />
         </button>
       </div>
       <div className="cart-lines">
@@ -2443,7 +2459,7 @@ export default async function CartPage({ params }: { params: Promise<{ locale: s
 }
 ```
 
-- [ ] **Step 5: Create service entry page**
+- [ ] **Step 6: Create service entry page**
 
 Create `apps/storefront/src/components/service-entry-page.tsx`:
 
@@ -2457,7 +2473,7 @@ export function ServiceEntryPage({ entry, locale }: { entry: ServiceEntry; local
   return (
     <main id="main-content" className="page-shell service-entry-page">
       <div className="service-icon">
-        <UploadCloud size={34} />
+        <UploadCloud size={34} aria-hidden="true" />
       </div>
       <p className="eyebrow">{locale === "zh-HK" ? "即將推出" : "Coming soon"}</p>
       <h1>{localize(entry.title, locale)}</h1>
@@ -2491,7 +2507,7 @@ export default async function ServiceRoute({ params }: { params: Promise<{ local
 }
 ```
 
-- [ ] **Step 6: Wire provider, drawer, and product button**
+- [ ] **Step 7: Wire provider, drawer, and product button**
 
 Modify `apps/storefront/app/[locale]/layout.tsx`:
 
@@ -2550,7 +2566,7 @@ and add this import:
 import { AddToCartButton } from "./add-to-cart-button"
 ```
 
-- [ ] **Step 7: Add cart and service CSS**
+- [ ] **Step 8: Add cart and service CSS**
 
 Append to `apps/storefront/app/globals.css`:
 
@@ -2560,6 +2576,8 @@ Append to `apps/storefront/app/globals.css`:
   right: 18px;
   bottom: 18px;
   width: min(360px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -2635,7 +2653,24 @@ Append to `apps/storefront/app/globals.css`:
   color: #ffffff;
 }
 
+.cart-drawer-header button:hover,
+.cart-drawer-header button:active {
+  background: #f3f4f6;
+}
+
+.cart-drawer-header button:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 3px;
+}
+
 @media (max-width: 620px) {
+  .cart-drawer {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+
   .cart-page h1,
   .service-entry-page h1 {
     font-size: 2.5rem;
@@ -2643,7 +2678,7 @@ Append to `apps/storefront/app/globals.css`:
 }
 ```
 
-- [ ] **Step 8: Verify cart and service routes**
+- [ ] **Step 9: Verify cart and service routes**
 
 Run: `npm.cmd run test --workspace @fotomax/storefront`
 
@@ -2665,7 +2700,7 @@ http://localhost:3000/zh-HK/cart
 
 Expected: product route renders an enabled add-to-cart button, service route explains that upload/configuration details are coming soon, and cart route clearly describes the upcoming checkout path without implementation or release-planning language.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add apps/storefront
