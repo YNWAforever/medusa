@@ -57,9 +57,9 @@ export const products: Product[] = [
 ]
 
 export const serviceEntries: ServiceEntry[] = [
-  { handle: "upload-photo-print", categoryHandle: "photo-print", status: "next-phase", title: { "zh-HK": "上載相片沖印訂單", en: "Upload Photo Print Order" }, summary: { "zh-HK": "下一階段會加入上載、裁切、尺寸及門市取貨流程。", en: "Upload, crop, sizing, and pickup selection will be added in the next phase." }, actionLabel: { "zh-HK": "查看沖印選項", en: "Preview print options" } },
-  { handle: "design-photobook", categoryHandle: "photobook", status: "next-phase", title: { "zh-HK": "設計相簿", en: "Design a Photobook" }, summary: { "zh-HK": "下一階段會加入相簿版面、頁數及封面設定。", en: "Book layout, page count, and cover setup will be added in the next phase." }, actionLabel: { "zh-HK": "查看相簿款式", en: "Preview book styles" } },
-  { handle: "store-pickup", categoryHandle: "photo-print", status: "next-phase", title: { "zh-HK": "門市取貨及分店服務", en: "Store Pickup & Collection" }, summary: { "zh-HK": "下一階段會加入分店搜尋、庫存提示及取貨時段選擇。", en: "Store search, availability guidance, and pickup times will be added in the next phase." }, actionLabel: { "zh-HK": "瀏覽相片服務", en: "Browse photo services" } },
+  { handle: "upload-photo-print", categoryHandle: "photo-print", status: "next-phase", title: { "zh-HK": "上載相片沖印訂單", en: "Upload Photo Print Order" }, summary: { "zh-HK": "網上相片上載、裁切、尺寸選擇及門市取貨功能即將推出。", en: "Online photo upload, cropping, size selection, and store pickup are coming soon." }, actionLabel: { "zh-HK": "查看沖印選項", en: "Preview print options" } },
+  { handle: "design-photobook", categoryHandle: "photobook", status: "next-phase", title: { "zh-HK": "設計相簿", en: "Design a Photobook" }, summary: { "zh-HK": "相簿版面、頁數及封面設定功能即將推出。", en: "Photobook layout, page count, and cover setup are coming soon." }, actionLabel: { "zh-HK": "查看相簿款式", en: "Preview book styles" } },
+  { handle: "store-pickup", categoryHandle: "photo-print", status: "next-phase", title: { "zh-HK": "門市取貨及分店服務", en: "Store Pickup & Collection" }, summary: { "zh-HK": "分店搜尋、庫存提示及取貨時段選擇功能即將推出。", en: "Store search, availability guidance, and pickup time selection are coming soon." }, actionLabel: { "zh-HK": "瀏覽相片服務", en: "Browse photo services" } },
 ]
 
 export function getCategory(handle: string): Category | undefined {

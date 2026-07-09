@@ -22,7 +22,7 @@ export const copy = {
   shopNow: { "zh-HK": "立即選購", en: "Shop now" },
   browseCategory: { "zh-HK": "瀏覽分類", en: "Browse category" },
   storePickup: { "zh-HK": "門市取貨", en: "Store pickup" },
-  nextPhase: { "zh-HK": "下一階段推出", en: "Coming in the next phase" },
+  comingSoon: { "zh-HK": "即將推出", en: "Coming soon" },
   addToCart: { "zh-HK": "加入購物車", en: "Add to cart" },
   addedToCart: { "zh-HK": "已加入購物車", en: "Added to cart" },
 } as const satisfies Record<string, LocalizedText>

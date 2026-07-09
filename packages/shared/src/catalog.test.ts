@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   categories,
+  copy,
   defaultLocale,
   formatPrice,
   getCategory,
@@ -14,6 +15,8 @@ import {
   serviceEntries,
   t,
 } from "./index"
+
+const bannedCustomerCopy = /next phase|下一階段|Medusa/i
 
 describe("Fotomax shared catalog", () => {
   it("defines the supported bilingual locales", () => {
@@ -57,6 +60,33 @@ describe("Fotomax shared catalog", () => {
   it("provides shared navigation copy", () => {
     expect(t("en", "cart")).toBe("Cart")
     expect(t("zh-HK", "cart")).toBe("購物車")
+  })
+
+  it("keeps every localized service field customer-facing", () => {
+    for (const entry of serviceEntries) {
+      const shopperFacingFields = [
+        ["title", entry.title],
+        ["summary", entry.summary],
+        ["actionLabel", entry.actionLabel],
+      ] as const
+
+      for (const [fieldName, field] of shopperFacingFields) {
+        for (const locale of locales) {
+          expect(field[locale], `${entry.handle}.${fieldName}.${locale}`).not.toMatch(bannedCustomerCopy)
+        }
+      }
+    }
+  })
+
+  it("uses customer-facing coming-soon copy", () => {
+    expect(copy).toHaveProperty("comingSoon")
+    expect(copy).not.toHaveProperty("nextPhase")
+    expect(t("en", "comingSoon")).toBe("Coming soon")
+    expect(t("zh-HK", "comingSoon")).toBe("即將推出")
+
+    for (const locale of locales) {
+      expect(t(locale, "comingSoon")).not.toMatch(bannedCustomerCopy)
+    }
   })
 
   it("has polished next-phase service entries", () => {
