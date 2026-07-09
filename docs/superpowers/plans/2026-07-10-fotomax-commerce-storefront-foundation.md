@@ -1815,8 +1815,9 @@ export function CategoryProductGrid({ products, locale }: { products: Product[];
 Create `apps/storefront/src/components/category-page.tsx`:
 
 ```tsx
+import Image from "next/image"
 import Link from "next/link"
-import { localize, serviceEntries, t, type Category, type Locale, type Product } from "@fotomax/shared"
+import { localize, serviceEntries, type Category, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 import { CategoryProductGrid } from "./category-product-grid"
 
@@ -1851,7 +1852,7 @@ export function CategoryPage({ category, products, locale }: { category: Categor
         <section className="page-shell service-strip">
           {relatedServices.map((entry) => (
             <Link key={entry.handle} href={localeHref(locale, `/services/${entry.handle}`)}>
-              <span>{t(locale, "nextPhase")}</span>
+              <span>{locale === "zh-HK" ? "即將推出" : "Coming soon"}</span>
               <strong>{localize(entry.title, locale)}</strong>
               <p>{localize(entry.summary, locale)}</p>
             </Link>
@@ -1869,7 +1870,7 @@ Create `apps/storefront/src/components/product-detail.tsx`:
 import Image from "next/image"
 import Link from "next/link"
 import { CheckCircle2, Store } from "lucide-react"
-import { formatPrice, localize, t, type Category, type Locale, type Product } from "@fotomax/shared"
+import { formatPrice, localize, type Category, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 
 export function ProductDetail({ product, category, locale }: { product: Product; category: Category; locale: Locale }) {
@@ -1887,7 +1888,7 @@ export function ProductDetail({ product, category, locale }: { product: Product;
         <p>{localize(product.description, locale)}</p>
         <strong className="price">{formatPrice(product.priceCents, locale)}</strong>
         <p className="option-note">
-          {locale === "zh-HK" ? "以下選項只供參考；完整產品設定會在下一階段推出。" : "Options are shown for reference; full product configuration arrives in the next phase."}
+          {locale === "zh-HK" ? "以下選項只供參考；網上訂購功能即將推出。" : "Options are shown for reference; online ordering is coming soon."}
         </p>
         <div className="option-stack">
           {product.options.map((option) => (
@@ -1903,13 +1904,13 @@ export function ProductDetail({ product, category, locale }: { product: Product;
             </div>
           ))}
         </div>
-        <button className="button primary wide" type="button" disabled>
-          {t(locale, "addToCart")}
-        </button>
+        <p className="availability-note">
+          {locale === "zh-HK" ? "網上訂購即將推出" : "Online ordering coming soon"}
+        </p>
         <div className="detail-notes">
           <p>
             <Store size={18} />
-            {locale === "zh-HK" ? "支援下一階段門市取貨設定。" : "Store pickup setup is prepared for the next phase."}
+            {locale === "zh-HK" ? "門市取貨詳情即將推出。" : "Store pickup details are coming soon."}
           </p>
           <p>
             <CheckCircle2 size={18} />
@@ -2202,6 +2203,8 @@ git commit -m "feat: add storefront catalog routes"
 ### Task 6: Cart Shell And Service Entry States
 
 **Files:**
+- Create: `apps/storefront/src/lib/cart-state.ts`
+- Create: `apps/storefront/src/lib/cart-state.test.ts`
 - Create: `apps/storefront/src/components/cart-provider.tsx`
 - Create: `apps/storefront/src/components/add-to-cart-button.tsx`
 - Create: `apps/storefront/src/components/cart-drawer.tsx`
@@ -2214,9 +2217,46 @@ git commit -m "feat: add storefront catalog routes"
 
 **Interfaces:**
 - Consumes: `Product`, `ServiceEntry`, `getProduct`, `getServiceEntry`, `formatPrice`, `localize`, `t`.
-- Produces: client cart state with `addItem(product: Product): void`, `items`, and `clearCart(): void`.
+- Produces: pure `addCartItem(items, product)` and `getCartSubtotal(items)` helpers plus client cart state with `addItem(product: Product): void`, `items`, and `clearCart(): void`.
 
-- [ ] **Step 1: Create cart provider and add-to-cart button**
+- [ ] **Step 1: Write failing cart state tests**
+
+Create `apps/storefront/src/lib/cart-state.test.ts` before the implementation. Cover adding a new product, incrementing an existing line without mutating the input array, and calculating a quantity-aware subtotal.
+
+Run: `npm.cmd run test --workspace @fotomax/storefront`
+
+Expected: FAIL because `apps/storefront/src/lib/cart-state.ts` does not exist.
+
+- [ ] **Step 2: Implement cart state helpers**
+
+Create `apps/storefront/src/lib/cart-state.ts`:
+
+```ts
+import type { Product } from "@fotomax/shared"
+
+export interface CartItem {
+  product: Product
+  quantity: number
+}
+
+export function addCartItem(items: CartItem[], product: Product): CartItem[] {
+  const existing = items.find((item) => item.product.handle === product.handle)
+
+  if (!existing) {
+    return [...items, { product, quantity: 1 }]
+  }
+
+  return items.map((item) =>
+    item.product.handle === product.handle ? { ...item, quantity: item.quantity + 1 } : item
+  )
+}
+
+export function getCartSubtotal(items: CartItem[]): number {
+  return items.reduce((sum, item) => sum + item.product.priceCents * item.quantity, 0)
+}
+```
+
+- [ ] **Step 3: Create cart provider and add-to-cart button**
 
 Create `apps/storefront/src/components/cart-provider.tsx`:
 
@@ -2225,11 +2265,7 @@ Create `apps/storefront/src/components/cart-provider.tsx`:
 
 import { createContext, useContext, useMemo, useState } from "react"
 import type { Product } from "@fotomax/shared"
-
-export interface CartItem {
-  product: Product
-  quantity: number
-}
+import { addCartItem, type CartItem } from "@/lib/cart-state"
 
 interface CartContextValue {
   items: CartItem[]
@@ -2246,15 +2282,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     () => ({
       items,
       addItem(product) {
-        setItems((current) => {
-          const existing = current.find((item) => item.product.handle === product.handle)
-          if (existing) {
-            return current.map((item) =>
-              item.product.handle === product.handle ? { ...item, quantity: item.quantity + 1 } : item
-            )
-          }
-          return [...current, { product, quantity: 1 }]
-        })
+        setItems((current) => addCartItem(current, product))
       },
       clearCart() {
         setItems([])
@@ -2305,7 +2333,7 @@ export function AddToCartButton({ product, locale }: { product: Product; locale:
 }
 ```
 
-- [ ] **Step 2: Create cart drawer and cart route**
+- [ ] **Step 4: Create cart drawer and cart route**
 
 Create `apps/storefront/src/components/cart-drawer.tsx`:
 
@@ -2316,11 +2344,12 @@ import Link from "next/link"
 import { ShoppingBag, Trash2 } from "lucide-react"
 import { formatPrice, localize, t, type Locale } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
+import { getCartSubtotal } from "@/lib/cart-state"
 import { useCart } from "./cart-provider"
 
 export function CartDrawer({ locale }: { locale: Locale }) {
   const { items, clearCart } = useCart()
-  const subtotal = items.reduce((sum, item) => sum + item.product.priceCents * item.quantity, 0)
+  const subtotal = getCartSubtotal(items)
 
   if (items.length === 0) {
     return null
@@ -2375,22 +2404,22 @@ export default async function CartPage({ params }: { params: Promise<{ locale: s
       <h1>{locale === "zh-HK" ? "購物車已準備好" : "Your cart is ready"}</h1>
       <p>
         {locale === "zh-HK"
-          ? "你可在瀏覽期間加入產品；結帳、付款及訂單確認會在下一階段推出。"
-          : "Add products while you browse; checkout, payment, and order confirmation arrive in the next phase."}
+          ? "你可在瀏覽期間加入產品；結帳、付款及訂單確認即將推出。"
+          : "Add products while you browse; checkout, payment, and order confirmation are coming soon."}
       </p>
     </main>
   )
 }
 ```
 
-- [ ] **Step 3: Create service entry page**
+- [ ] **Step 5: Create service entry page**
 
 Create `apps/storefront/src/components/service-entry-page.tsx`:
 
 ```tsx
 import Link from "next/link"
 import { UploadCloud } from "lucide-react"
-import { localize, t, type Locale, type ServiceEntry } from "@fotomax/shared"
+import { localize, type Locale, type ServiceEntry } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 
 export function ServiceEntryPage({ entry, locale }: { entry: ServiceEntry; locale: Locale }) {
@@ -2399,7 +2428,7 @@ export function ServiceEntryPage({ entry, locale }: { entry: ServiceEntry; local
       <div className="service-icon">
         <UploadCloud size={34} />
       </div>
-      <p className="eyebrow">{t(locale, "nextPhase")}</p>
+      <p className="eyebrow">{locale === "zh-HK" ? "即將推出" : "Coming soon"}</p>
       <h1>{localize(entry.title, locale)}</h1>
       <p>{localize(entry.summary, locale)}</p>
       <Link className="button primary" href={localeHref(locale, `/categories/${entry.categoryHandle}`)}>
@@ -2431,7 +2460,7 @@ export default async function ServiceRoute({ params }: { params: Promise<{ local
 }
 ```
 
-- [ ] **Step 4: Wire provider, drawer, and product button**
+- [ ] **Step 6: Wire provider, drawer, and product button**
 
 Modify `apps/storefront/app/[locale]/layout.tsx`:
 
@@ -2478,7 +2507,7 @@ export default async function LocaleLayout({
 }
 ```
 
-Modify `apps/storefront/src/components/product-detail.tsx` by replacing the disabled button with:
+Modify `apps/storefront/src/components/product-detail.tsx` by replacing the `.availability-note` paragraph with:
 
 ```tsx
 <AddToCartButton product={product} locale={locale} />
@@ -2490,7 +2519,7 @@ and add this import:
 import { AddToCartButton } from "./add-to-cart-button"
 ```
 
-- [ ] **Step 5: Add cart and service CSS**
+- [ ] **Step 7: Add cart and service CSS**
 
 Append to `apps/storefront/app/globals.css`:
 
@@ -2583,9 +2612,13 @@ Append to `apps/storefront/app/globals.css`:
 }
 ```
 
-- [ ] **Step 6: Verify cart and service routes**
+- [ ] **Step 8: Verify cart and service routes**
 
-Run: `npm run build --workspace @fotomax/storefront`
+Run: `npm.cmd run test --workspace @fotomax/storefront`
+
+Expected: PASS with cart-state coverage plus all existing storefront tests.
+
+Run: `npm.cmd run build --workspace @fotomax/storefront`
 
 Expected: PASS.
 
@@ -2599,9 +2632,9 @@ http://localhost:3000/en/services/upload-photo-print
 http://localhost:3000/zh-HK/cart
 ```
 
-Expected: product route renders an enabled add-to-cart button, service route explains next-phase upload/configuration, and cart route clearly describes the upcoming checkout path.
+Expected: product route renders an enabled add-to-cart button, service route explains that upload/configuration details are coming soon, and cart route clearly describes the upcoming checkout path without implementation or release-planning language.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add apps/storefront
