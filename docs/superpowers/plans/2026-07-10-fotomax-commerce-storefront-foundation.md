@@ -53,6 +53,7 @@
 - `apps/medusa/package.json`: Medusa backend package metadata and scripts.
 - `apps/medusa/tsconfig.json`: backend TypeScript config.
 - `apps/medusa/medusa-config.ts`: Medusa configuration.
+- `apps/medusa/src/scripts/seed.test.ts`: pure seed payload validation that does not require PostgreSQL.
 - `apps/medusa/src/scripts/seed.ts`: Medusa seed payload entry point.
 - `apps/medusa/README.md`: local backend run notes.
 
@@ -102,6 +103,8 @@ Create `package.json` with this complete content:
 Create `.gitignore` with this complete content:
 
 ```gitignore
+.worktrees/
+.superpowers/
 node_modules/
 .next/
 .medusa/
@@ -275,6 +278,7 @@ describe("Fotomax shared catalog", () => {
   it("has polished next-phase service entries", () => {
     expect(serviceEntries.every((entry) => entry.status === "next-phase")).toBe(true)
     expect(serviceEntries.map((entry) => entry.handle)).toContain("upload-photo-print")
+    expect(serviceEntries.map((entry) => entry.handle)).toContain("store-pickup")
   })
 })
 ```
@@ -561,6 +565,14 @@ export const serviceEntries: ServiceEntry[] = [
     summary: { "zh-HK": "下一階段會加入相簿版面、頁數及封面設定。", en: "Book layout, page count, and cover setup will be added in the next phase." },
     actionLabel: { "zh-HK": "查看相簿款式", en: "Preview book styles" },
   },
+  {
+    handle: "store-pickup",
+    categoryHandle: "photo-print",
+    status: "next-phase",
+    title: { "zh-HK": "門市取貨及分店服務", en: "Store Pickup & Collection" },
+    summary: { "zh-HK": "下一階段會加入分店搜尋、庫存提示及取貨時段選擇。", en: "Store search, availability guidance, and pickup times will be added in the next phase." },
+    actionLabel: { "zh-HK": "瀏覽相片服務", en: "Browse photo services" },
+  },
 ]
 
 export function getCategory(handle: string): Category | undefined {
@@ -655,8 +667,8 @@ Create `apps/storefront/package.json`:
     "@fotomax/shared": "file:../../packages/shared",
     "lucide-react": "^0.475.0",
     "next": "^16.2.10",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -802,8 +814,12 @@ Create `apps/storefront/app/[locale]/layout.tsx`:
 
 ```tsx
 import { notFound } from "next/navigation"
-import { localeLabels, type Locale } from "@fotomax/shared"
+import { localeLabels, locales, type Locale } from "@fotomax/shared"
 import { assertLocale } from "@/lib/locales"
+
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }))
+}
 
 export default async function LocaleLayout({
   children,
@@ -822,7 +838,7 @@ export default async function LocaleLayout({
   }
 
   return (
-    <div data-locale={locale} aria-label={localeLabels[locale]}>
+    <div lang={locale} data-locale={locale} aria-label={localeLabels[locale]}>
       {children}
     </div>
   )
@@ -854,6 +870,7 @@ export default async function LocaleHomePage({ params }: { params: Promise<{ loc
 Create `apps/storefront/app/not-found.tsx`:
 
 ```tsx
+import Image from "next/image"
 import Link from "next/link"
 
 export default function NotFound() {
@@ -891,6 +908,21 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+  touch-action: manipulation;
+}
+
+button {
+  font: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+:where(a, button):focus-visible {
+  outline: 3px solid #007f7f;
+  outline-offset: 3px;
 }
 
 .page-shell {
@@ -979,7 +1011,7 @@ Create `apps/storefront/src/components/site-header.tsx`:
 
 ```tsx
 import Link from "next/link"
-import { Globe2, MapPin, Search, ShoppingBag } from "lucide-react"
+import { Globe2, MapPin, ShoppingBag } from "lucide-react"
 import { categories, localeLabels, localize, t, type Locale } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 
@@ -999,9 +1031,6 @@ export function SiteHeader({ locale }: { locale: Locale }) {
         ))}
       </nav>
       <div className="header-actions">
-        <button className="icon-button" type="button" aria-label="Search">
-          <Search size={18} />
-        </button>
         <Link className="icon-button" href={localeHref(locale, "/services/store-pickup")} aria-label={t(locale, "storePickup")}>
           <MapPin size={18} />
         </Link>
@@ -1043,19 +1072,28 @@ export function CategoryTile({ category, locale }: { category: Category; locale:
 Create `apps/storefront/src/components/product-card.tsx`:
 
 ```tsx
+import Image from "next/image"
 import Link from "next/link"
 import { ShoppingBag } from "lucide-react"
 import { formatPrice, localize, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 
 export function ProductCard({ product, locale }: { product: Product; locale: Locale }) {
+  const productName = localize(product.name, locale)
+
   return (
     <article className="product-card">
-      <Link href={localeHref(locale, `/products/${product.handle}`)} className="product-image" style={{ backgroundImage: `url(${product.image})` }} aria-label={localize(product.name, locale)} />
+      <Link
+        href={localeHref(locale, `/products/${product.handle}`)}
+        className="product-image"
+        aria-label={locale === "zh-HK" ? `查看${productName}` : `View ${productName}`}
+      >
+        <Image src={product.image} alt="" fill sizes="(max-width: 920px) 100vw, 25vw" />
+      </Link>
       <div className="product-card-body">
         <span className="badge">{localize(product.badge, locale)}</span>
         <h3>
-          <Link href={localeHref(locale, `/products/${product.handle}`)}>{localize(product.name, locale)}</Link>
+          <Link href={localeHref(locale, `/products/${product.handle}`)}>{productName}</Link>
         </h3>
         <p>{localize(product.description, locale)}</p>
         <div className="product-card-footer">
@@ -1073,8 +1111,9 @@ export function ProductCard({ product, locale }: { product: Product; locale: Loc
 Create `apps/storefront/src/components/home-page.tsx`:
 
 ```tsx
+import Image from "next/image"
 import Link from "next/link"
-import { Camera, Image, Sparkles } from "lucide-react"
+import { Camera, Images, Sparkles } from "lucide-react"
 import { categories, products, serviceEntries, localize, t, type Locale } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 import { CategoryTile } from "./category-tile"
@@ -1084,16 +1123,25 @@ export function HomePage({ locale }: { locale: Locale }) {
   const featuredProducts = products.slice(0, 4)
 
   return (
-    <main>
+    <main id="main-content">
       <section className="home-hero">
+        <Image
+          className="hero-backdrop"
+          src="https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1800&q=80"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+        />
+        <div className="hero-overlay" aria-hidden="true" />
         <div className="page-shell hero-content">
           <div>
             <p className="eyebrow">Fotomax</p>
             <h1>{locale === "zh-HK" ? "影像生活，由沖印到禮物一站完成。" : "Photo life, from prints to gifts in one modern shop."}</h1>
             <p>
               {locale === "zh-HK"
-                ? "快速找到相片沖印、相簿、即影即有菲林及個人化產品，支援下一階段接入 Medusa 購物流程。"
-                : "Browse prints, photobooks, instant film, and personalized products with a Medusa-ready commerce path."}
+                ? "快速找到相片沖印、相簿、即影即有菲林及個人化產品，並前往合適的門市取貨服務。"
+                : "Browse prints, photobooks, instant film, and personalized products with clear paths to store pickup."}
             </p>
             <div className="hero-actions">
               <Link className="button primary" href={localeHref(locale, "/categories/photo-print")}>
@@ -1107,9 +1155,9 @@ export function HomePage({ locale }: { locale: Locale }) {
             </div>
           </div>
           <div className="hero-panel" aria-label="Featured Fotomax services">
-            <Image size={32} />
+            <Images size={32} />
             <strong>{locale === "zh-HK" ? "門市取貨及影像服務" : "Store pickup and photo services"}</strong>
-            <span>{locale === "zh-HK" ? "Phase 1 commerce foundation" : "Phase 1 commerce foundation"}</span>
+            <span>{locale === "zh-HK" ? "更多取貨選項即將推出" : "More pickup options coming soon"}</span>
           </div>
         </div>
       </section>
@@ -1163,9 +1211,13 @@ Modify `apps/storefront/app/[locale]/layout.tsx` to:
 
 ```tsx
 import { notFound } from "next/navigation"
-import { localeLabels, type Locale } from "@fotomax/shared"
+import { localeLabels, locales, type Locale } from "@fotomax/shared"
 import { SiteHeader } from "@/components/site-header"
 import { assertLocale } from "@/lib/locales"
+
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }))
+}
 
 export default async function LocaleLayout({
   children,
@@ -1184,7 +1236,10 @@ export default async function LocaleLayout({
   }
 
   return (
-    <div data-locale={locale} aria-label={localeLabels[locale]}>
+    <div lang={locale} data-locale={locale} aria-label={localeLabels[locale]}>
+      <a className="skip-link" href="#main-content">
+        {locale === "zh-HK" ? "跳至主要內容" : "Skip to main content"}
+      </a>
       <SiteHeader locale={locale} />
       {children}
     </div>
@@ -1226,6 +1281,21 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
   backdrop-filter: blur(12px);
 }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-160%);
+  background: #111827;
+  color: #ffffff;
+  padding: 10px 14px;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .brand {
   font-size: 1.45rem;
   font-weight: 900;
@@ -1255,7 +1325,8 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 
 .icon-button,
 .cart-link {
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   border: 1px solid #d1d5db;
   background: #ffffff;
   color: #111827;
@@ -1269,17 +1340,27 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 }
 
 .home-hero {
-  min-height: 620px;
-  background:
-    linear-gradient(90deg, rgba(17, 24, 39, 0.84), rgba(17, 24, 39, 0.18)),
-    url("https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1800&q=80");
-  background-size: cover;
-  background-position: center;
+  position: relative;
+  min-height: min(620px, calc(100dvh - 144px));
+  overflow: hidden;
   color: #ffffff;
 }
 
+.hero-backdrop {
+  object-fit: cover;
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(17, 24, 39, 0.62);
+}
+
 .hero-content {
-  min-height: 620px;
+  position: relative;
+  z-index: 2;
+  min-height: min(620px, calc(100dvh - 144px));
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.55fr);
   gap: 36px;
@@ -1288,7 +1369,7 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 
 .hero-content h1 {
   max-width: 780px;
-  font-size: clamp(2.6rem, 6vw, 5.7rem);
+  font-size: 5.25rem;
   line-height: 0.96;
   margin-bottom: 18px;
 }
@@ -1371,6 +1452,22 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
   align-content: space-between;
   padding: 22px;
   border-top: 5px solid var(--accent);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.home-hero .eyebrow,
+.category-hero .eyebrow {
+  color: #ffd166;
+}
+
+.category-tile:hover,
+.category-tile:focus-visible,
+.product-card:focus-within {
+  box-shadow: 0 14px 32px rgba(17, 24, 39, 0.1);
+}
+
+.category-tile:hover {
+  transform: translateY(-2px);
 }
 
 .category-tile span,
@@ -1393,11 +1490,15 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 }
 
 .product-image {
+  position: relative;
   display: block;
   aspect-ratio: 4 / 3;
-  background-size: cover;
-  background-position: center;
+  overflow: hidden;
   border-radius: 8px 8px 0 0;
+}
+
+.product-image img {
+  object-fit: cover;
 }
 
 .product-card-body {
@@ -1423,7 +1524,7 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
 
 .service-strip {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
   padding: 72px 0;
 }
@@ -1446,8 +1547,12 @@ Replace `apps/storefront/app/globals.css` with the CSS from Task 3 plus these ad
   .mega-nav {
     grid-column: 1 / -1;
     justify-content: flex-start;
-    overflow-x: auto;
+    flex-wrap: wrap;
     padding-bottom: 4px;
+  }
+
+  .hero-content h1 {
+    font-size: 4rem;
   }
 
   .hero-content,
@@ -1498,6 +1603,7 @@ git commit -m "feat: build Fotomax storefront homepage"
 - Create: `apps/storefront/src/lib/catalog-view.ts`
 - Create: `apps/storefront/src/lib/catalog-view.test.ts`
 - Create: `apps/storefront/src/components/category-page.tsx`
+- Create: `apps/storefront/src/components/category-product-grid.tsx`
 - Create: `apps/storefront/src/components/product-detail.tsx`
 - Create: `apps/storefront/app/[locale]/categories/[handle]/page.tsx`
 - Create: `apps/storefront/app/[locale]/products/[handle]/page.tsx`
@@ -1505,7 +1611,7 @@ git commit -m "feat: build Fotomax storefront homepage"
 
 **Interfaces:**
 - Consumes: shared catalog accessors.
-- Produces: `getCategoryView(handle: string)`, `getProductView(handle: string)`, category route, and product route.
+- Produces: `getCategoryView(handle: string)`, `getProductView(handle: string)`, `filterProducts(products: Product[], filter: ProductFilter)`, category route, and product route.
 
 - [ ] **Step 1: Write failing catalog view tests**
 
@@ -1513,7 +1619,8 @@ Create `apps/storefront/src/lib/catalog-view.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest"
-import { getCategoryView, getProductView } from "./catalog-view"
+import { products } from "@fotomax/shared"
+import { filterProducts, getCategoryView, getProductView } from "./catalog-view"
 
 describe("catalog view selectors", () => {
   it("returns a category with its products", () => {
@@ -1530,6 +1637,17 @@ describe("catalog view selectors", () => {
     const view = getProductView("classic-4r-photo-print")
     expect(view?.product.handle).toBe("classic-4r-photo-print")
     expect(view?.category.handle).toBe("photo-print")
+  })
+
+  it("filters products by customer-facing availability state", () => {
+    const featured = filterProducts(products, "featured")
+    const available = filterProducts(products, "available")
+
+    expect(filterProducts(products, "all")).toHaveLength(products.length)
+    expect(featured).toHaveLength(2)
+    expect(featured.every((product) => product.status === "featured")).toBe(true)
+    expect(available).toHaveLength(3)
+    expect(available.every((product) => product.status === "available")).toBe(true)
   })
 })
 ```
@@ -1555,6 +1673,16 @@ export interface CategoryView {
 export interface ProductView {
   product: Product
   category: Category
+}
+
+export type ProductFilter = "all" | "featured" | "available"
+
+export function filterProducts(products: Product[], filter: ProductFilter): Product[] {
+  if (filter === "all") {
+    return products
+  }
+
+  return products.filter((product) => product.status === filter)
 }
 
 export function getCategoryView(handle: string): CategoryView | undefined {
@@ -1589,38 +1717,81 @@ export function getProductView(handle: string): ProductView | undefined {
 
 - [ ] **Step 4: Create category and product components**
 
+Create `apps/storefront/src/components/category-product-grid.tsx`:
+
+```tsx
+"use client"
+
+import { useState } from "react"
+import type { Locale, Product } from "@fotomax/shared"
+import { filterProducts, type ProductFilter } from "@/lib/catalog-view"
+import { ProductCard } from "./product-card"
+
+const filters: ProductFilter[] = ["all", "featured", "available"]
+
+const filterLabels: Record<ProductFilter, Record<Locale, string>> = {
+  all: { "zh-HK": "全部", en: "All" },
+  featured: { "zh-HK": "精選", en: "Featured" },
+  available: { "zh-HK": "現貨產品", en: "Available" },
+}
+
+export function CategoryProductGrid({ products, locale }: { products: Product[]; locale: Locale }) {
+  const [filter, setFilter] = useState<ProductFilter>("all")
+  const visibleProducts = filterProducts(products, filter)
+
+  return (
+    <div>
+      <div className="filter-row" role="group" aria-label={locale === "zh-HK" ? "產品篩選" : "Product filters"}>
+        {filters.map((value) => (
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>
+            {filterLabels[value][locale]}
+          </button>
+        ))}
+      </div>
+      {visibleProducts.length > 0 ? (
+        <div className="product-grid">
+          {visibleProducts.map((product) => (
+            <ProductCard key={product.handle} product={product} locale={locale} />
+          ))}
+        </div>
+      ) : (
+        <div className="filter-empty" role="status">
+          <p>{locale === "zh-HK" ? "這個篩選暫時沒有產品。" : "No products match this filter yet."}</p>
+          <button type="button" className="button primary" onClick={() => setFilter("all")}>
+            {locale === "zh-HK" ? "顯示全部" : "Show all"}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
 Create `apps/storefront/src/components/category-page.tsx`:
 
 ```tsx
 import Link from "next/link"
 import { localize, serviceEntries, t, type Category, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
-import { ProductCard } from "./product-card"
+import { CategoryProductGrid } from "./category-product-grid"
 
 export function CategoryPage({ category, products, locale }: { category: Category; products: Product[]; locale: Locale }) {
   const relatedServices = serviceEntries.filter((entry) => entry.categoryHandle === category.handle)
 
   return (
-    <main>
-      <section className="category-hero" style={{ "--accent": category.accent } as React.CSSProperties}>
-        <div className="page-shell">
+    <main id="main-content">
+      <section className="category-hero" style={{ backgroundColor: category.accent }}>
+        {products[0] && <Image className="category-hero-image" src={products[0].image} alt="" fill priority sizes="100vw" />}
+        <div className="category-hero-overlay" aria-hidden="true" />
+        <div className="page-shell category-hero-content">
           <p className="eyebrow">{localize(category.name, locale)}</p>
           <h1>{localize(category.hero, locale)}</h1>
           <p>{localize(category.summary, locale)}</p>
         </div>
       </section>
       <section className="page-shell section">
-        <div className="filter-row" aria-label="Category filters">
-          <span>{locale === "zh-HK" ? "全部" : "All"}</span>
-          <span>{locale === "zh-HK" ? "精選" : "Featured"}</span>
-          <span>{locale === "zh-HK" ? "門市取貨" : "Store pickup"}</span>
-        </div>
         {products.length > 0 ? (
-          <div className="product-grid">
-            {products.map((product) => (
-              <ProductCard key={product.handle} product={product} locale={locale} />
-            ))}
-          </div>
+          <CategoryProductGrid products={products} locale={locale} />
         ) : (
           <div className="empty-state">
             <h2>{locale === "zh-HK" ? "暫未有產品" : "No products yet"}</h2>
@@ -1650,6 +1821,7 @@ export function CategoryPage({ category, products, locale }: { category: Categor
 Create `apps/storefront/src/components/product-detail.tsx`:
 
 ```tsx
+import Image from "next/image"
 import Link from "next/link"
 import { CheckCircle2, Store } from "lucide-react"
 import { formatPrice, localize, t, type Category, type Locale, type Product } from "@fotomax/shared"
@@ -1657,8 +1829,10 @@ import { localeHref } from "@/lib/locales"
 
 export function ProductDetail({ product, category, locale }: { product: Product; category: Category; locale: Locale }) {
   return (
-    <main className="page-shell product-detail">
-      <div className="product-gallery" style={{ backgroundImage: `url(${product.image})` }} />
+    <main id="main-content" className="page-shell product-detail">
+      <div className="product-gallery">
+        <Image src={product.image} alt={localize(product.name, locale)} fill priority sizes="(max-width: 920px) 100vw, 60vw" />
+      </div>
       <section className="product-info">
         <Link className="text-link" href={localeHref(locale, `/categories/${category.handle}`)}>
           {localize(category.name, locale)}
@@ -1667,18 +1841,21 @@ export function ProductDetail({ product, category, locale }: { product: Product;
         <h1>{localize(product.name, locale)}</h1>
         <p>{localize(product.description, locale)}</p>
         <strong className="price">{formatPrice(product.priceCents, locale)}</strong>
+        <p className="option-note">
+          {locale === "zh-HK" ? "以下選項只供參考；完整產品設定會在下一階段推出。" : "Options are shown for reference; full product configuration arrives in the next phase."}
+        </p>
         <div className="option-stack">
           {product.options.map((option) => (
-            <fieldset key={localize(option.name, "en")}>
-              <legend>{localize(option.name, locale)}</legend>
+            <div className="option-group" key={localize(option.name, "en")}>
+              <strong>{localize(option.name, locale)}</strong>
               <div>
                 {option.values.map((value) => (
-                  <button key={localize(value, "en")} type="button">
+                  <span key={localize(value, "en")}>
                     {localize(value, locale)}
-                  </button>
+                  </span>
                 ))}
               </div>
-            </fieldset>
+            </div>
           ))}
         </div>
         <button className="button primary wide" type="button" disabled>
@@ -1691,7 +1868,7 @@ export function ProductDetail({ product, category, locale }: { product: Product;
           </p>
           <p>
             <CheckCircle2 size={18} />
-            {locale === "zh-HK" ? "產品資料使用 Medusa-ready 結構。" : "Product data uses a Medusa-ready structure."}
+            {locale === "zh-HK" ? "所有價格均以港幣顯示。" : "All prices are shown in Hong Kong dollars."}
           </p>
         </div>
       </section>
@@ -1752,16 +1929,31 @@ Append to `apps/storefront/app/globals.css`:
 
 ```css
 .category-hero {
+  position: relative;
   padding: 88px 0;
+  overflow: hidden;
   color: #ffffff;
-  background:
-    linear-gradient(90deg, rgba(17, 24, 39, 0.88), rgba(17, 24, 39, 0.24)),
-    linear-gradient(135deg, var(--accent), #111827);
+}
+
+.category-hero-image {
+  object-fit: cover;
+}
+
+.category-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(17, 24, 39, 0.68);
+}
+
+.category-hero-content {
+  position: relative;
+  z-index: 2;
 }
 
 .category-hero h1 {
   max-width: 820px;
-  font-size: clamp(2.2rem, 5vw, 4.4rem);
+  font-size: 4rem;
   line-height: 1;
 }
 
@@ -1778,15 +1970,29 @@ Append to `apps/storefront/app/globals.css`:
   margin-bottom: 22px;
 }
 
-.filter-row span {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
+.filter-row button {
+  min-height: 44px;
   border: 1px solid #d1d5db;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 14px;
   background: #ffffff;
+  color: #111827;
   font-weight: 800;
+}
+
+.filter-row button[aria-pressed="true"] {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+}
+
+.filter-empty {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 32px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
 }
 
 .empty-state {
@@ -1807,10 +2013,14 @@ Append to `apps/storefront/app/globals.css`:
 }
 
 .product-gallery {
+  position: relative;
   min-height: 620px;
+  overflow: hidden;
   border-radius: 8px;
-  background-size: cover;
-  background-position: center;
+}
+
+.product-gallery img {
+  object-fit: cover;
 }
 
 .product-info {
@@ -1821,7 +2031,7 @@ Append to `apps/storefront/app/globals.css`:
 
 .product-info h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-size: 3.25rem;
   line-height: 1;
 }
 
@@ -1834,25 +2044,34 @@ Append to `apps/storefront/app/globals.css`:
   gap: 16px;
 }
 
-.option-stack fieldset {
+.option-group {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 14px;
 }
 
-.option-stack legend {
-  padding: 0 6px;
+.option-group > strong {
+  display: block;
+  margin-bottom: 10px;
   font-weight: 900;
 }
 
-.option-stack fieldset div {
+.option-group div {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.option-stack button {
+.option-note {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.option-stack span {
   min-height: 38px;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: #ffffff;
@@ -1878,12 +2097,40 @@ Append to `apps/storefront/app/globals.css`:
 }
 
 @media (max-width: 920px) {
+  .category-hero h1 {
+    font-size: 3.2rem;
+  }
+
   .product-detail {
     grid-template-columns: 1fr;
   }
 
   .product-gallery {
     min-height: 360px;
+  }
+
+  .product-info h1 {
+    font-size: 2.75rem;
+  }
+}
+
+@media (max-width: 620px) {
+  .category-hero h1 {
+    font-size: 2.5rem;
+  }
+
+  .product-info h1 {
+    font-size: 2.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .category-tile {
+    transition: none;
+  }
+
+  .category-tile:hover {
+    transform: none;
   }
 }
 ```
@@ -2021,7 +2268,7 @@ Create `apps/storefront/src/components/cart-drawer.tsx`:
 "use client"
 
 import Link from "next/link"
-import { ShoppingBag, X } from "lucide-react"
+import { ShoppingBag, Trash2 } from "lucide-react"
 import { formatPrice, localize, t, type Locale } from "@fotomax/shared"
 import { localeHref } from "@/lib/locales"
 import { useCart } from "./cart-provider"
@@ -2030,6 +2277,10 @@ export function CartDrawer({ locale }: { locale: Locale }) {
   const { items, clearCart } = useCart()
   const subtotal = items.reduce((sum, item) => sum + item.product.priceCents * item.quantity, 0)
 
+  if (items.length === 0) {
+    return null
+  }
+
   return (
     <aside className="cart-drawer" aria-label={t(locale, "cart")}>
       <div className="cart-drawer-header">
@@ -2037,24 +2288,20 @@ export function CartDrawer({ locale }: { locale: Locale }) {
           <ShoppingBag size={18} />
           {t(locale, "cart")}
         </strong>
-        <button type="button" onClick={clearCart} aria-label="Clear cart">
-          <X size={16} />
+        <button type="button" onClick={clearCart} aria-label={locale === "zh-HK" ? "清空購物車" : "Clear cart"}>
+          <Trash2 size={16} />
         </button>
       </div>
-      {items.length === 0 ? (
-        <p>{locale === "zh-HK" ? "購物車尚未有產品。" : "Your cart is ready for products."}</p>
-      ) : (
-        <div className="cart-lines">
-          {items.map((item) => (
-            <div key={item.product.handle}>
-              <span>{localize(item.product.name, locale)}</span>
-              <strong>
-                {item.quantity} x {formatPrice(item.product.priceCents, locale)}
-              </strong>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="cart-lines">
+        {items.map((item) => (
+          <div key={item.product.handle}>
+            <span>{localize(item.product.name, locale)}</span>
+            <strong>
+              {item.quantity} x {formatPrice(item.product.priceCents, locale)}
+            </strong>
+          </div>
+        ))}
+      </div>
       <div className="cart-total">
         <span>{locale === "zh-HK" ? "小計" : "Subtotal"}</span>
         <strong>{formatPrice(subtotal, locale)}</strong>
@@ -2078,13 +2325,13 @@ export default async function CartPage({ params }: { params: Promise<{ locale: s
   const locale: Locale = assertLocale(localeParam)
 
   return (
-    <main className="page-shell cart-page">
+    <main id="main-content" className="page-shell cart-page">
       <p className="eyebrow">{locale === "zh-HK" ? "購物車" : "Cart"}</p>
-      <h1>{locale === "zh-HK" ? "Medusa 購物流程準備中" : "Medusa cart path is ready"}</h1>
+      <h1>{locale === "zh-HK" ? "購物車已準備好" : "Your cart is ready"}</h1>
       <p>
         {locale === "zh-HK"
-          ? "Phase 1 已建立購物車介面；下一階段會接入實際 Medusa cart API、付款及訂單流程。"
-          : "Phase 1 establishes the cart interface; the next phase connects Medusa cart APIs, payment, and order flow."}
+          ? "你可在瀏覽期間加入產品；結帳、付款及訂單確認會在下一階段推出。"
+          : "Add products while you browse; checkout, payment, and order confirmation arrive in the next phase."}
       </p>
     </main>
   )
@@ -2103,7 +2350,7 @@ import { localeHref } from "@/lib/locales"
 
 export function ServiceEntryPage({ entry, locale }: { entry: ServiceEntry; locale: Locale }) {
   return (
-    <main className="page-shell service-entry-page">
+    <main id="main-content" className="page-shell service-entry-page">
       <div className="service-icon">
         <UploadCloud size={34} />
       </div>
@@ -2145,11 +2392,15 @@ Modify `apps/storefront/app/[locale]/layout.tsx`:
 
 ```tsx
 import { notFound } from "next/navigation"
-import { localeLabels, type Locale } from "@fotomax/shared"
+import { localeLabels, locales, type Locale } from "@fotomax/shared"
 import { CartDrawer } from "@/components/cart-drawer"
 import { CartProvider } from "@/components/cart-provider"
 import { SiteHeader } from "@/components/site-header"
 import { assertLocale } from "@/lib/locales"
+
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }))
+}
 
 export default async function LocaleLayout({
   children,
@@ -2169,7 +2420,10 @@ export default async function LocaleLayout({
 
   return (
     <CartProvider>
-      <div data-locale={locale} aria-label={localeLabels[locale]}>
+      <div lang={locale} data-locale={locale} aria-label={localeLabels[locale]}>
+        <a className="skip-link" href="#main-content">
+          {locale === "zh-HK" ? "跳至主要內容" : "Skip to main content"}
+        </a>
         <SiteHeader locale={locale} />
         {children}
         <CartDrawer locale={locale} />
@@ -2226,8 +2480,8 @@ Append to `apps/storefront/app/globals.css`:
 }
 
 .cart-drawer-header button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: #ffffff;
@@ -2255,7 +2509,7 @@ Append to `apps/storefront/app/globals.css`:
 .cart-page h1,
 .service-entry-page h1 {
   max-width: 760px;
-  font-size: clamp(2.4rem, 5vw, 4.4rem);
+  font-size: 4rem;
   line-height: 1;
 }
 
@@ -2275,6 +2529,13 @@ Append to `apps/storefront/app/globals.css`:
   background: #111827;
   color: #ffffff;
 }
+
+@media (max-width: 620px) {
+  .cart-page h1,
+  .service-entry-page h1 {
+    font-size: 2.5rem;
+  }
+}
 ```
 
 - [ ] **Step 6: Verify cart and service routes**
@@ -2293,7 +2554,7 @@ http://localhost:3000/en/services/upload-photo-print
 http://localhost:3000/zh-HK/cart
 ```
 
-Expected: product route renders an enabled add-to-cart button, service route explains next-phase upload/configuration, cart route explains Medusa cart integration path.
+Expected: product route renders an enabled add-to-cart button, service route explains next-phase upload/configuration, and cart route clearly describes the upcoming checkout path.
 
 - [ ] **Step 7: Commit**
 
@@ -2310,6 +2571,7 @@ git commit -m "feat: add cart and service entry states"
 - Create: `apps/medusa/package.json`
 - Create: `apps/medusa/tsconfig.json`
 - Create: `apps/medusa/medusa-config.ts`
+- Create: `apps/medusa/src/scripts/seed.test.ts`
 - Create: `apps/medusa/src/scripts/seed.ts`
 - Create: `apps/medusa/README.md`
 
@@ -2332,7 +2594,8 @@ Create `apps/medusa/package.json`:
     "build": "medusa build",
     "start": "medusa start",
     "seed": "medusa exec ./src/scripts/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fotomax/shared": "file:../../packages/shared",
@@ -2345,7 +2608,8 @@ Create `apps/medusa/package.json`:
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }
 ```
@@ -2356,7 +2620,7 @@ Create `apps/medusa/tsconfig.json`:
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "jsx": "react-jsx"
   },
   "include": ["medusa-config.ts", "src/**/*.ts"]
@@ -2386,7 +2650,36 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 3: Add Medusa seed payload script**
+- [ ] **Step 3: Write the failing seed payload test**
+
+Create `apps/medusa/src/scripts/seed.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest"
+import { buildFotomaxSeedPayload } from "./seed"
+
+describe("Fotomax Medusa seed payload", () => {
+  it("maps the bilingual catalog into Hong Kong commerce data", () => {
+    const payload = buildFotomaxSeedPayload()
+    const photoPrint = payload.products.find((product) => product.handle === "classic-4r-photo-print")
+
+    expect(payload.region).toEqual({ name: "Hong Kong", currency_code: "hkd", countries: ["hk"] })
+    expect(payload.collections).toHaveLength(6)
+    expect(payload.products).toHaveLength(5)
+    expect(payload.service_entries).toHaveLength(3)
+    expect(photoPrint?.variants[0].prices[0]).toEqual({ currency_code: "hkd", amount: 280 })
+    expect(photoPrint?.metadata.title_zh_hk).toBe("經典 4R 相片沖印")
+  })
+})
+```
+
+- [ ] **Step 4: Run the failing seed payload test**
+
+Run: `npm run test --workspace @fotomax/medusa`
+
+Expected: FAIL because `apps/medusa/src/scripts/seed.ts` does not exist yet.
+
+- [ ] **Step 5: Add Medusa seed payload script**
 
 Create `apps/medusa/src/scripts/seed.ts`:
 
@@ -2457,11 +2750,11 @@ export default async function seedFotomax({ logger }: ExecArgs) {
 }
 ```
 
-- [ ] **Step 4: Add backend run notes**
+- [ ] **Step 6: Add backend run notes**
 
 Create `apps/medusa/README.md`:
 
-```md
+````md
 # Fotomax Medusa Backend
 
 This app is the Medusa boundary for the Fotomax storefront foundation.
@@ -2470,6 +2763,7 @@ This app is the Medusa boundary for the Fotomax storefront foundation.
 
 - `npm run dev --workspace @fotomax/medusa` starts Medusa at `http://localhost:9000`.
 - `npm run seed --workspace @fotomax/medusa` prepares the Fotomax seed payload.
+- `npm run test --workspace @fotomax/medusa` validates the generated seed payload without requiring PostgreSQL.
 - `npm run typecheck --workspace @fotomax/medusa` checks the backend config and seed script.
 
 ## Required Local Environment
@@ -2484,11 +2778,15 @@ AUTH_CORS=http://localhost:9000,http://localhost:3000,http://localhost:8000
 JWT_SECRET=fotomax-local-jwt-secret
 COOKIE_SECRET=fotomax-local-cookie-secret
 ```
-```
+````
 
-- [ ] **Step 5: Verify Medusa package**
+- [ ] **Step 7: Verify Medusa package**
 
 Run: `npm install`
+
+Run: `npm run test --workspace @fotomax/medusa`
+
+Expected: PASS with the seed payload validation test.
 
 Run: `npm run typecheck --workspace @fotomax/medusa`
 
@@ -2496,9 +2794,9 @@ Expected: PASS with no TypeScript errors.
 
 Run: `npm run seed --workspace @fotomax/medusa`
 
-Expected: logs show 6 collections, 5 products, and 2 service entries prepared. If PostgreSQL is not running, record that the seed payload typecheck passed and defer live DB import to the backend setup task for the next phase.
+Expected: logs show 6 collections, 5 products, and 3 service entries prepared. If PostgreSQL is not running, record that the seed payload test and typecheck passed and defer live DB import to the backend setup task for the next phase.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/medusa package-lock.json
@@ -2560,7 +2858,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev --workspace @fotomax/storefront -- --hostname 127.0.0.1",
+    command: "npm run dev -- --hostname 127.0.0.1",
     url: "http://127.0.0.1:3000/zh-HK",
     reuseExistingServer: true,
     timeout: 120000,
@@ -2598,12 +2896,13 @@ test("category page lists seeded products", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Classic 4R Photo Print" })).toBeVisible()
 })
 
-test("product page has cart-ready CTA and Medusa notes", async ({ page }) => {
+test("product page has a cart-ready CTA and customer-facing notes", async ({ page }) => {
   await page.goto("/en/products/classic-4r-photo-print")
   await expect(page.getByRole("heading", { name: "Classic 4R Photo Print" })).toBeVisible()
   await expect(page.getByRole("button", { name: /Add to cart/i })).toBeVisible()
   await page.getByRole("button", { name: /Add to cart/i }).click()
   await expect(page.getByRole("button", { name: /Added to cart/i })).toBeVisible()
+  await expect(page.getByRole("complementary", { name: "Cart" })).toContainText("Classic 4R Photo Print")
 })
 
 test("service page communicates next-phase upload flow", async ({ page }) => {
@@ -2612,9 +2911,16 @@ test("service page communicates next-phase upload flow", async ({ page }) => {
   await expect(page.getByText("Coming in the next phase")).toBeVisible()
 })
 
-test("cart route explains Medusa cart path", async ({ page }) => {
+test("store pickup navigation resolves to an honest next-phase state", async ({ page }) => {
+  await page.goto("/en")
+  await page.getByRole("link", { name: "Store pickup" }).click()
+  await expect(page.getByRole("heading", { name: "Store Pickup & Collection" })).toBeVisible()
+  await expect(page.getByText("Coming in the next phase")).toBeVisible()
+})
+
+test("cart route explains the next checkout phase", async ({ page }) => {
   await page.goto("/en/cart")
-  await expect(page.getByRole("heading", { name: "Medusa cart path is ready" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Your cart is ready" })).toBeVisible()
 })
 ```
 
@@ -2622,11 +2928,11 @@ test("cart route explains Medusa cart path", async ({ page }) => {
 
 Run: `npm install`
 
-Run: `npx playwright install chromium`
+Run: `npm exec playwright install chromium`
 
 Run: `npm run check`
 
-Expected: shared tests PASS, storefront tests PASS, typecheck PASS, storefront build PASS.
+Expected: shared, storefront, and Medusa seed tests PASS; typecheck PASS; storefront build PASS.
 
 Run: `npm run e2e --workspace @fotomax/storefront`
 
@@ -2650,6 +2956,7 @@ Create `docs/verification/fotomax-phase-1.md`:
 - `/en/categories/photo-print`
 - `/en/products/classic-4r-photo-print`
 - `/en/services/upload-photo-print`
+- `/en/services/store-pickup`
 - `/en/cart`
 
 ## Result
