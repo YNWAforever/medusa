@@ -2,13 +2,15 @@ import { Camera, Images, Sparkles } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import React from "react"
-import { categories, localize, products, serviceEntries, t, type Locale } from "@fotomax/shared"
+import { categories, localize, products, serviceEntries, type Locale } from "@fotomax/shared"
 import { localeHref } from "../lib/locales"
 import { CategoryTile } from "./category-tile"
 import { ProductCard } from "./product-card"
 
 export function HomePage({ locale }: { locale: Locale }) {
   const featuredProducts = products.slice(0, 4)
+  const comingSoonLabel = locale === "zh-HK" ? "即將推出" : "Coming soon"
+  const comingSoonSummary = locale === "zh-HK" ? "服務準備中，敬請期待。" : "We're preparing this service for you."
 
   return (
     <main id="main-content">
@@ -42,7 +44,7 @@ export function HomePage({ locale }: { locale: Locale }) {
               </Link>
             </div>
           </div>
-          <div className="hero-panel" aria-label={locale === "zh-HK" ? "Fotomax 精選服務" : "Featured Fotomax services"}>
+          <div className="hero-panel">
             <Images size={32} aria-hidden="true" />
             <strong>{locale === "zh-HK" ? "門市取貨及影像服務" : "Store pickup and photo services"}</strong>
             <span>{locale === "zh-HK" ? "更多取貨選項即將推出" : "More pickup options coming soon"}</span>
@@ -82,9 +84,9 @@ export function HomePage({ locale }: { locale: Locale }) {
       <section className="page-shell service-strip">
         {serviceEntries.map((entry) => (
           <Link key={entry.handle} href={localeHref(locale, `/services/${entry.handle}`)}>
-            <span>{t(locale, "nextPhase")}</span>
+            <span>{comingSoonLabel}</span>
             <strong>{localize(entry.title, locale)}</strong>
-            <p>{localize(entry.summary, locale)}</p>
+            <p>{comingSoonSummary}</p>
           </Link>
         ))}
       </section>

@@ -26,7 +26,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
         <Link className="icon-button" href={localeHref(alternateLocale, "/")} aria-label={localeLabels[alternateLocale]}>
           <Globe2 size={18} aria-hidden="true" />
         </Link>
-        <Link className="cart-link" href={localeHref(locale, "/cart")}>
+        <Link className="cart-link" href={localeHref(locale, "/cart")} aria-label={t(locale, "cart")}>
           <ShoppingBag size={18} aria-hidden="true" />
           <span>{t(locale, "cart")}</span>
         </Link>
