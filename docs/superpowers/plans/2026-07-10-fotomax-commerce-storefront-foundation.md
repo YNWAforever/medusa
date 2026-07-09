@@ -270,6 +270,12 @@ describe("Fotomax shared catalog", () => {
     expect(formatPrice(280, "zh-HK")).toBe("HK$2.80")
   })
 
+  it("uses product-representative audited media", () => {
+    expect(getProduct("premium-layflat-photobook")!.image).toBe("https://images.unsplash.com/photo-1528569937393-ee892b976859?auto=format&fit=crop&w=1200&q=80")
+    expect(getProduct("instax-mini-film-pack")!.image).toBe("https://images.unsplash.com/photo-1486574655068-162e94137442?auto=format&fit=crop&w=1200&q=80")
+    expect(getProduct("desktop-acrylic-photo-block")!.image).toBe("https://images.unsplash.com/photo-1526049471490-b2a136bb4538?auto=format&fit=crop&w=1200&q=80")
+  })
+
   it("provides shared navigation copy", () => {
     expect(t("en", "cart")).toBe("Cart")
     expect(t("zh-HK", "cart")).toBe("購物車")
@@ -476,7 +482,7 @@ export const products: Product[] = [
     status: "featured",
     name: { "zh-HK": "高級平開相簿", en: "Premium Layflat Photobook" },
     description: { "zh-HK": "適合婚禮、旅行及家庭故事的平開設計相簿。", en: "A layflat book for weddings, travel, and family stories." },
-    image: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?auto=format&fit=crop&w=1200&q=80",
+    image: "https://images.unsplash.com/photo-1528569937393-ee892b976859?auto=format&fit=crop&w=1200&q=80",
     priceCents: 19800,
     badge: { "zh-HK": "可客製", en: "Customizable" },
     options: [
@@ -514,7 +520,7 @@ export const products: Product[] = [
     status: "available",
     name: { "zh-HK": "Instax Mini 即影即有菲林", en: "Instax Mini Film Pack" },
     description: { "zh-HK": "適用於 Instax Mini 系列相機的即影即有菲林。", en: "Instant film for Instax Mini cameras." },
-    image: "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=1200&q=80",
+    image: "https://images.unsplash.com/photo-1486574655068-162e94137442?auto=format&fit=crop&w=1200&q=80",
     priceCents: 7800,
     badge: { "zh-HK": "門市取貨", en: "Store pickup" },
     options: [
@@ -533,7 +539,7 @@ export const products: Product[] = [
     status: "available",
     name: { "zh-HK": "亞加力座枱相架", en: "Desktop Acrylic Photo Block" },
     description: { "zh-HK": "清晰厚身亞加力展示相片，適合家居或辦公桌。", en: "A clear acrylic block for desks, shelves, and workspaces." },
-    image: "https://images.unsplash.com/photo-1499951360447-b19be8fe80f5?auto=format&fit=crop&w=1200&q=80",
+    image: "https://images.unsplash.com/photo-1526049471490-b2a136bb4538?auto=format&fit=crop&w=1200&q=80",
     priceCents: 12800,
     badge: { "zh-HK": "家居擺設", en: "Home display" },
     options: [
@@ -612,7 +618,7 @@ export * from "./i18n"
 
 Run: `npm run test --workspace @fotomax/shared`
 
-Expected: PASS with 7 tests.
+Expected: PASS with 8 tests.
 
 Run: `npm run typecheck --workspace @fotomax/shared`
 
