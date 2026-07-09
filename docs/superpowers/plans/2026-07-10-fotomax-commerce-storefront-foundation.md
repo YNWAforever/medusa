@@ -338,9 +338,9 @@ export const copy = {
     "zh-HK": "門市取貨",
     en: "Store pickup",
   },
-  nextPhase: {
-    "zh-HK": "下一階段推出",
-    en: "Coming in the next phase",
+  comingSoon: {
+    "zh-HK": "即將推出",
+    en: "Coming soon",
   },
   addToCart: {
     "zh-HK": "加入購物車",
@@ -560,7 +560,7 @@ export const serviceEntries: ServiceEntry[] = [
     categoryHandle: "photo-print",
     status: "next-phase",
     title: { "zh-HK": "上載相片沖印訂單", en: "Upload Photo Print Order" },
-    summary: { "zh-HK": "下一階段會加入上載、裁切、尺寸及門市取貨流程。", en: "Upload, crop, sizing, and pickup selection will be added in the next phase." },
+    summary: { "zh-HK": "網上相片上載、裁切、尺寸選擇及門市取貨功能即將推出。", en: "Online photo upload, cropping, size selection, and store pickup are coming soon." },
     actionLabel: { "zh-HK": "查看沖印選項", en: "Preview print options" },
   },
   {
@@ -568,7 +568,7 @@ export const serviceEntries: ServiceEntry[] = [
     categoryHandle: "photobook",
     status: "next-phase",
     title: { "zh-HK": "設計相簿", en: "Design a Photobook" },
-    summary: { "zh-HK": "下一階段會加入相簿版面、頁數及封面設定。", en: "Book layout, page count, and cover setup will be added in the next phase." },
+    summary: { "zh-HK": "相簿版面、頁數及封面設定功能即將推出。", en: "Photobook layout, page count, and cover setup are coming soon." },
     actionLabel: { "zh-HK": "查看相簿款式", en: "Preview book styles" },
   },
   {
@@ -576,7 +576,7 @@ export const serviceEntries: ServiceEntry[] = [
     categoryHandle: "photo-print",
     status: "next-phase",
     title: { "zh-HK": "門市取貨及分店服務", en: "Store Pickup & Collection" },
-    summary: { "zh-HK": "下一階段會加入分店搜尋、庫存提示及取貨時段選擇。", en: "Store search, availability guidance, and pickup times will be added in the next phase." },
+    summary: { "zh-HK": "分店搜尋、庫存提示及取貨時段選擇功能即將推出。", en: "Store search, availability guidance, and pickup time selection are coming soon." },
     actionLabel: { "zh-HK": "瀏覽相片服務", en: "Browse photo services" },
   },
 ]
@@ -1039,7 +1039,7 @@ describe("Fotomax homepage composition", () => {
 
     expect(page).toContain("影像生活，由沖印到禮物一站完成。")
     expect(page).toContain("熱門產品及服務")
-    expect(page).toContain("下一階段推出")
+    expect(page).toContain("即將推出")
   })
 })
 ```
@@ -1239,7 +1239,7 @@ export function HomePage({ locale }: { locale: Locale }) {
       <section className="page-shell service-strip">
         {serviceEntries.map((entry) => (
           <Link key={entry.handle} href={localeHref(locale, `/services/${entry.handle}`)}>
-            <span>{t(locale, "nextPhase")}</span>
+            <span>{t(locale, "comingSoon")}</span>
             <strong>{localize(entry.title, locale)}</strong>
             <p>{localize(entry.summary, locale)}</p>
           </Link>
