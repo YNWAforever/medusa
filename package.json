@@ -1,0 +1,22 @@
+{
+  "name": "fotomax-modernization",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspace @fotomax/storefront",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "dev": "npm run dev --workspace @fotomax/storefront",
+    "dev:medusa": "npm run dev --workspace @fotomax/medusa",
+    "seed:medusa": "npm run seed --workspace @fotomax/medusa"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

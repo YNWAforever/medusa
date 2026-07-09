@@ -1,2 +1,13 @@
 .worktrees/
 .superpowers/
+node_modules/
+.next/
+.medusa/
+dist/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+npm-debug.log*
