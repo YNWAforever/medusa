@@ -18,6 +18,33 @@ export interface ProductView {
 
 export type ProductFilter = "all" | "featured" | "available"
 
+const productFilters: ProductFilter[] = ["all", "featured", "available"]
+
+export function parseProductFilter(value: string | string[] | undefined): ProductFilter {
+  if (typeof value === "string" && productFilters.includes(value as ProductFilter)) {
+    return value as ProductFilter
+  }
+
+  return "all"
+}
+
+export function buildCategoryFilterHref(
+  pathname: string,
+  currentSearch: string,
+  filter: ProductFilter,
+): string {
+  const searchParams = new URLSearchParams(currentSearch)
+
+  if (filter === "all") {
+    searchParams.delete("filter")
+  } else {
+    searchParams.set("filter", filter)
+  }
+
+  const query = searchParams.toString()
+  return query ? `${pathname}?${query}` : pathname
+}
+
 export function filterProducts(products: Product[], filter: ProductFilter): Product[] {
   if (filter === "all") {
     return products

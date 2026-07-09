@@ -33,18 +33,22 @@ export function ProductDetail({ product, category, locale }: { product: Product;
             ? "以下選項只供參考；網上訂購即將推出。"
             : "Options are shown for reference; online ordering is coming soon."}
         </p>
-        <section className="option-stack" aria-labelledby="product-options-heading">
-          <h2 id="product-options-heading">{locale === "zh-HK" ? "產品選項" : "Product options"}</h2>
-          {product.options.map((option) => (
-            <div className="option-group" key={localize(option.name, "en")}>
-              <strong>{localize(option.name, locale)}</strong>
-              <div>
-                {option.values.map((value) => (
-                  <span key={localize(value, "en")}>{localize(value, locale)}</span>
-                ))}
+        <section className="option-stack" aria-labelledby="product-details-heading">
+          <h2 id="product-details-heading">{locale === "zh-HK" ? "產品資料" : "Product details"}</h2>
+          <dl className="option-list">
+            {product.options.map((option) => (
+              <div className="option-group" key={localize(option.name, "en")}>
+                <dt>{localize(option.name, locale)}</dt>
+                <dd>
+                  <ul className="option-values">
+                    {option.values.map((value) => (
+                      <li key={localize(value, "en")}>{localize(value, locale)}</li>
+                    ))}
+                  </ul>
+                </dd>
               </div>
-            </div>
-          ))}
+            ))}
+          </dl>
         </section>
         <p className="availability-note">
           {locale === "zh-HK" ? "網上訂購即將推出" : "Online ordering coming soon"}

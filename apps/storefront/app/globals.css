@@ -587,7 +587,8 @@ p {
 
 .product-gallery {
   position: relative;
-  min-height: 620px;
+  min-height: 0;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: 8px;
   background: #f3f4f6;
@@ -629,22 +630,33 @@ p {
   font-size: 1.15rem;
 }
 
-.option-group {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 14px;
+.option-list {
+  display: grid;
+  gap: 18px;
+  margin: 0;
 }
 
-.option-group > strong {
-  display: block;
-  margin-bottom: 10px;
+.option-group {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+  gap: 12px 24px;
+}
+
+.option-group dt {
   font-weight: 900;
 }
 
-.option-group div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.option-group dd {
+  margin: 0;
+  color: #4b5563;
+}
+
+.option-values {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.5;
 }
 
 .option-note {
@@ -657,17 +669,6 @@ p {
   margin: 0;
   color: var(--color-red-text);
   font-weight: 900;
-}
-
-.option-stack span {
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 0 14px;
-  font-weight: 800;
 }
 
 .detail-notes {
@@ -723,7 +724,8 @@ p {
   }
 
   .product-gallery {
-    min-height: 360px;
+    min-height: 0;
+    aspect-ratio: 4 / 3;
   }
 
   .product-info h1 {
@@ -817,6 +819,11 @@ p {
 
   .product-info h1 {
     font-size: 2.25rem;
+  }
+
+  .option-group {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .filter-row button {

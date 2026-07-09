@@ -2,10 +2,21 @@ import Image from "next/image"
 import Link from "next/link"
 import React from "react"
 import { localize, serviceEntries, type Category, type Locale, type Product } from "@fotomax/shared"
+import type { ProductFilter } from "../lib/catalog-view"
 import { localeHref } from "../lib/locales"
 import { CategoryProductGrid } from "./category-product-grid"
 
-export function CategoryPage({ category, products, locale }: { category: Category; products: Product[]; locale: Locale }) {
+export function CategoryPage({
+  category,
+  products,
+  locale,
+  initialFilter = "all",
+}: {
+  category: Category
+  products: Product[]
+  locale: Locale
+  initialFilter?: ProductFilter
+}) {
   const relatedServices = serviceEntries.filter((entry) => entry.categoryHandle === category.handle)
   const comingSoonLabel = locale === "zh-HK" ? "即將推出" : "Coming soon"
   const comingSoonSummary = locale === "zh-HK" ? "我們正準備這項服務，敬請期待。" : "We're preparing this service for you."
@@ -38,7 +49,12 @@ export function CategoryPage({ category, products, locale }: { category: Categor
               <p className="eyebrow">Fotomax</p>
               <h2>{locale === "zh-HK" ? "產品" : "Products"}</h2>
             </div>
-            <CategoryProductGrid products={products} locale={locale} />
+            <CategoryProductGrid
+              key={initialFilter}
+              products={products}
+              locale={locale}
+              initialFilter={initialFilter}
+            />
           </>
         ) : (
           <div className="empty-state">
@@ -49,7 +65,7 @@ export function CategoryPage({ category, products, locale }: { category: Categor
                 : "Return to the homepage to browse other Fotomax categories."}
             </p>
             <Link className="button primary" href={localeHref(locale, "/")}>
-              Fotomax
+              {locale === "zh-HK" ? "瀏覽產品分類" : "Browse categories"}
             </Link>
           </div>
         )}

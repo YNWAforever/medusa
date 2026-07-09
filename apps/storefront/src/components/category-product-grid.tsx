@@ -1,8 +1,9 @@
 "use client"
 
 import React, { useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { Locale, Product } from "@fotomax/shared"
-import { filterProducts, type ProductFilter } from "../lib/catalog-view"
+import { buildCategoryFilterHref, filterProducts, type ProductFilter } from "../lib/catalog-view"
 import { ProductCard } from "./product-card"
 
 const filters: ProductFilter[] = ["all", "featured", "available"]
@@ -13,15 +14,31 @@ const filterLabels: Record<ProductFilter, Record<Locale, string>> = {
   available: { "zh-HK": "現貨產品", en: "Available" },
 }
 
-export function CategoryProductGrid({ products, locale }: { products: Product[]; locale: Locale }) {
-  const [filter, setFilter] = useState<ProductFilter>("all")
+export function CategoryProductGrid({
+  products,
+  locale,
+  initialFilter,
+}: {
+  products: Product[]
+  locale: Locale
+  initialFilter: ProductFilter
+}) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [filter, setFilter] = useState<ProductFilter>(initialFilter)
   const visibleProducts = filterProducts(products, filter)
+
+  function selectFilter(value: ProductFilter) {
+    setFilter(value)
+    router.replace(buildCategoryFilterHref(pathname, searchParams.toString(), value), { scroll: false })
+  }
 
   return (
     <div>
       <div className="filter-row" role="group" aria-label={locale === "zh-HK" ? "產品篩選" : "Product filters"}>
         {filters.map((value) => (
-          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => selectFilter(value)}>
             {filterLabels[value][locale]}
           </button>
         ))}
@@ -35,7 +52,7 @@ export function CategoryProductGrid({ products, locale }: { products: Product[];
       ) : (
         <div className="filter-empty" role="status">
           <p>{locale === "zh-HK" ? "這個篩選暫時沒有產品。" : "No products match this filter yet."}</p>
-          <button type="button" className="button primary" onClick={() => setFilter("all")}>
+          <button type="button" className="button primary" onClick={() => selectFilter("all")}>
             {locale === "zh-HK" ? "顯示全部" : "Show all"}
           </button>
         </div>
