@@ -2776,7 +2776,7 @@ describe("Fotomax Medusa seed payload", () => {
     expect(payload.collections).toHaveLength(6)
     expect(payload.products).toHaveLength(5)
     expect(payload.service_entries).toHaveLength(3)
-    expect(photoPrint?.variants[0].prices[0]).toEqual({ currency_code: "hkd", amount: 280 })
+    expect(photoPrint?.variants[0].prices[0]).toEqual({ currency_code: "hkd", amount: 2.8 })
     expect(photoPrint?.metadata.title_zh_hk).toBe("經典 4R 相片沖印")
   })
 })
@@ -2835,7 +2835,7 @@ export function buildFotomaxSeedPayload() {
           prices: [
             {
               currency_code: "hkd",
-              amount: product.priceCents,
+              amount: product.priceCents / 100,
             },
           ],
         },
@@ -2924,7 +2924,7 @@ git commit -m "feat: add Medusa backend skeleton"
 
 **Interfaces:**
 - Consumes: storefront routes from Tasks 3-6.
-- Produces: `npm run e2e --workspace @fotomax/storefront` browser route smoke tests and verification notes.
+- Produces: `npm.cmd run e2e --workspace @fotomax/storefront` browser route smoke tests, desktop/mobile visual evidence, and verification notes.
 
 - [ ] **Step 1: Add Playwright dependency and scripts**
 
@@ -3014,38 +3014,48 @@ test("product page has a cart-ready CTA and customer-facing notes", async ({ pag
   await expect(page.getByRole("complementary", { name: "Cart" })).toContainText("Classic 4R Photo Print")
 })
 
-test("service page communicates next-phase upload flow", async ({ page }) => {
+test("service page communicates the upcoming upload flow", async ({ page }) => {
   await page.goto("/en/services/upload-photo-print")
   await expect(page.getByRole("heading", { name: "Upload Photo Print Order" })).toBeVisible()
-  await expect(page.getByText("Coming in the next phase")).toBeVisible()
+  await expect(page.getByText("Coming soon")).toBeVisible()
+  await expect(page.locator("body")).not.toContainText(/next phase|Medusa/i)
 })
 
-test("store pickup navigation resolves to an honest next-phase state", async ({ page }) => {
+test("store pickup navigation resolves to an honest coming-soon state", async ({ page }) => {
   await page.goto("/en")
   await page.getByRole("link", { name: "Store pickup" }).click()
   await expect(page.getByRole("heading", { name: "Store Pickup & Collection" })).toBeVisible()
-  await expect(page.getByText("Coming in the next phase")).toBeVisible()
+  await expect(page.getByText("Coming soon")).toBeVisible()
 })
 
-test("cart route explains the next checkout phase", async ({ page }) => {
+test("cart route explains the upcoming checkout flow", async ({ page }) => {
   await page.goto("/en/cart")
   await expect(page.getByRole("heading", { name: "Your cart is ready" })).toBeVisible()
+  await expect(page.getByText(/checkout, payment, and order confirmation are coming soon/i)).toBeVisible()
 })
 ```
 
 - [ ] **Step 4: Run full verification**
 
-Run: `npm install`
+Run: `npm.cmd install`
 
-Run: `npm exec playwright install chromium`
+Run: `npm.cmd exec playwright install chromium`
 
-Run: `npm run check`
+Run: `npm.cmd run check`
 
 Expected: shared, storefront, and Medusa seed tests PASS; typecheck PASS; storefront build PASS.
 
-Run: `npm run e2e --workspace @fotomax/storefront`
+Run: `npm.cmd run e2e --workspace @fotomax/storefront`
 
 Expected: desktop and mobile browser smoke tests PASS.
+
+Start the storefront dev server and use the browser verification tools to inspect `/zh-HK`, `/en/categories/photo-print`, `/en/products/classic-4r-photo-print`, `/en/services/store-pickup`, and `/en/cart` at 1440x900 and 375x812. Capture screenshots and verify:
+
+- no horizontal overflow, clipped text, incoherent overlap, or layout shifts;
+- the homepage leaves a visible hint of following content on mobile;
+- all hero/product images decode with non-zero natural dimensions and show the intended catalog subject;
+- filters, add-to-cart, cart drawer, clear-cart, locale links, and service links visibly respond;
+- focus states are visible, touch controls are at least 44px, and browser console has no errors.
 
 - [ ] **Step 5: Record verification**
 
@@ -3056,8 +3066,8 @@ Create `docs/verification/fotomax-phase-1.md`:
 
 ## Commands
 
-- `npm run check`
-- `npm run e2e --workspace @fotomax/storefront`
+- `npm.cmd run check`
+- `npm.cmd run e2e --workspace @fotomax/storefront`
 
 ## Routes Checked
 
