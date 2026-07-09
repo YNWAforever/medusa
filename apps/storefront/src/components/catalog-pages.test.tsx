@@ -1,0 +1,120 @@
+import { readFileSync } from "node:fs"
+import React from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+import { getCategory, getProductsByCategory, getServiceEntry, localize, type Locale } from "@fotomax/shared"
+import { getProductView } from "../lib/catalog-view"
+import { CategoryPage } from "./category-page"
+import { ProductDetail } from "./product-detail"
+
+const category = getCategory("photo-print")!
+const products = getProductsByCategory(category.handle)
+const services = [getServiceEntry("upload-photo-print"), getServiceEntry("store-pickup")].filter(
+  (service) => service !== undefined,
+)
+const productView = getProductView("classic-4r-photo-print")!
+
+function renderCatalog(locale: Locale) {
+  return {
+    category: renderToStaticMarkup(<CategoryPage category={category} products={products} locale={locale} />),
+    product: renderToStaticMarkup(
+      <ProductDetail product={productView.product} category={productView.category} locale={locale} />,
+    ),
+  }
+}
+
+describe("Fotomax catalog page composition", () => {
+  it.each([
+    ["en", "Products"],
+    ["zh-HK", "產品"],
+  ] as const)("renders a clear localized heading hierarchy in %s", (locale, productListHeading) => {
+    const markup = renderCatalog(locale)
+
+    expect(markup.category.match(/<h1>/g)).toHaveLength(1)
+    expect(markup.category).toContain(`<h1>${localize(category.hero, locale)}</h1>`)
+    expect(markup.category).toContain(`<h2>${productListHeading}</h2>`)
+    expect(markup.category.match(/<h3>/g)).toHaveLength(products.length)
+    expect(markup.category).not.toMatch(/<h[4-6]>/)
+    expect(markup.product.match(/<h1>/g)).toHaveLength(1)
+    expect(markup.product).toContain(`<h1>${localize(productView.product.name, locale)}</h1>`)
+  })
+
+  it.each(["en", "zh-HK"] as const)("renders complete localized catalog destinations in %s", (locale) => {
+    const markup = renderCatalog(locale)
+
+    expect(markup.category).toContain('<main id="main-content">')
+    expect(markup.product).toContain('id="main-content"')
+    expect(markup.product).toContain(`href="/${locale}/categories/${category.handle}"`)
+
+    for (const product of products) {
+      expect(markup.category).toContain(`href="/${locale}/products/${product.handle}"`)
+    }
+
+    for (const service of services) {
+      expect(markup.category).toContain(`href="/${locale}/services/${service.handle}"`)
+    }
+
+    expect(markup.category.match(/class="product-card"/g)).toHaveLength(products.length)
+  })
+
+  it.each([
+    ["en", "Product filters", ["All", "Featured", "Available"]],
+    ["zh-HK", "產品篩選", ["全部", "精選", "現貨產品"]],
+  ] as const)("renders three real filter buttons in %s", (locale, groupLabel, labels) => {
+    const { category: markup } = renderCatalog(locale)
+
+    expect(markup).toContain(`role="group" aria-label="${groupLabel}"`)
+    expect(markup.match(/<button/g)).toHaveLength(3)
+    expect(markup).toContain('aria-pressed="true"')
+    expect(markup.match(/aria-pressed="false"/g)).toHaveLength(2)
+
+    for (const label of labels) {
+      expect(markup).toContain(`>${label}</button>`)
+    }
+  })
+
+  it("uses optimized decorative category media and descriptive product media", () => {
+    const markup = renderCatalog("en")
+
+    expect(markup.category).toMatch(/<img alt=""[^>]*class="category-hero-image"[^>]*sizes="100vw"/)
+    expect(markup.product).toMatch(
+      /<img alt="Classic 4R Photo Print"[^>]*class="product-detail-image"[^>]*sizes="\(max-width: 920px\) 100vw, 60vw"/,
+    )
+  })
+
+  it.each(["en", "zh-HK"] as const)("presents product options as read-only information in %s", (locale) => {
+    const { product: markup } = renderCatalog(locale)
+
+    for (const option of productView.product.options) {
+      expect(markup).toContain(localize(option.name, locale))
+
+      for (const value of option.values) {
+        expect(markup).toContain(localize(value, locale))
+      }
+    }
+
+    expect(markup).toContain('class="option-stack"')
+    expect(markup).not.toMatch(/<(button|input|select|textarea|form)\b/)
+  })
+
+  it("uses customer-facing coming-soon language in both locales", () => {
+    const english = renderCatalog("en")
+    const chinese = renderCatalog("zh-HK")
+    const englishMarkup = `${english.category}${english.product}`
+    const chineseMarkup = `${chinese.category}${chinese.product}`
+
+    expect(englishMarkup).toContain("Coming soon")
+    expect(chineseMarkup).toContain("即將推出")
+    expect(englishMarkup).not.toMatch(/next phase|medusa|implementation|phase 1/i)
+    expect(chineseMarkup).not.toMatch(/下一階段|Medusa|實作|第一階段/i)
+  })
+
+  it("defines touch-sized filter controls with stable responsive typography", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8")
+
+    expect(css).toMatch(/\.filter-row button\s*\{[^}]*min-height:\s*44px/s)
+    expect(css).toMatch(/\.product-info \.availability-note\s*\{[^}]*color:\s*var\(--color-red-text\)/s)
+    expect(css).toMatch(/@media \(max-width: 620px\)[\s\S]*\.category-hero h1\s*\{[^}]*font-size:\s*2\.5rem/s)
+    expect(css).not.toMatch(/font-size:\s*clamp\(/)
+  })
+})
