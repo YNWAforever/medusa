@@ -48,6 +48,12 @@ describe("Fotomax shared catalog", () => {
     expect(formatPrice(280, "zh-HK")).toBe("HK$2.80")
   })
 
+  it("uses product-representative audited media", () => {
+    expect(getProduct("premium-layflat-photobook")!.image).toBe("https://images.unsplash.com/photo-1528569937393-ee892b976859?auto=format&fit=crop&w=1200&q=80")
+    expect(getProduct("instax-mini-film-pack")!.image).toBe("https://images.unsplash.com/photo-1486574655068-162e94137442?auto=format&fit=crop&w=1200&q=80")
+    expect(getProduct("desktop-acrylic-photo-block")!.image).toBe("https://images.unsplash.com/photo-1526049471490-b2a136bb4538?auto=format&fit=crop&w=1200&q=80")
+  })
+
   it("provides shared navigation copy", () => {
     expect(t("en", "cart")).toBe("Cart")
     expect(t("zh-HK", "cart")).toBe("購物車")
