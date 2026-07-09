@@ -189,4 +189,17 @@ describe("Fotomax catalog page composition", () => {
     expect(filterSource).toContain("buildCategoryFilterHref")
     expect(filterSource).toContain("router.replace")
   })
+
+  it("keeps the filter grid mounted and uses the validated URL filter as its single source of truth", () => {
+    const categoryPageSource = readFileSync(new URL("./category-page.tsx", import.meta.url), "utf8")
+    const filterSource = readFileSync(new URL("./category-product-grid.tsx", import.meta.url), "utf8")
+
+    expect(categoryPageSource).not.toContain("key={initialFilter}")
+    expect(filterSource).not.toMatch(/\buseState\b/)
+    expect(filterSource).not.toContain("setFilter")
+    expect(filterSource).toContain("filterProducts(products, initialFilter)")
+    expect(filterSource).toContain("aria-pressed={initialFilter === value}")
+    expect(filterSource).toContain('selectFilter("all")')
+    expect(filterSource).toContain("router.replace")
+  })
 })

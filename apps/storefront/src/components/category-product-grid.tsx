@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { Locale, Product } from "@fotomax/shared"
 import { buildCategoryFilterHref, filterProducts, type ProductFilter } from "../lib/catalog-view"
@@ -26,11 +26,9 @@ export function CategoryProductGrid({
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [filter, setFilter] = useState<ProductFilter>(initialFilter)
-  const visibleProducts = filterProducts(products, filter)
+  const visibleProducts = filterProducts(products, initialFilter)
 
   function selectFilter(value: ProductFilter) {
-    setFilter(value)
     router.replace(buildCategoryFilterHref(pathname, searchParams.toString(), value), { scroll: false })
   }
 
@@ -38,7 +36,12 @@ export function CategoryProductGrid({
     <div>
       <div className="filter-row" role="group" aria-label={locale === "zh-HK" ? "產品篩選" : "Product filters"}>
         {filters.map((value) => (
-          <button key={value} type="button" aria-pressed={filter === value} onClick={() => selectFilter(value)}>
+          <button
+            key={value}
+            type="button"
+            aria-pressed={initialFilter === value}
+            onClick={() => selectFilter(value)}
+          >
             {filterLabels[value][locale]}
           </button>
         ))}

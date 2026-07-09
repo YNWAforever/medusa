@@ -49,12 +49,7 @@ export function CategoryPage({
               <p className="eyebrow">Fotomax</p>
               <h2>{locale === "zh-HK" ? "產品" : "Products"}</h2>
             </div>
-            <CategoryProductGrid
-              key={initialFilter}
-              products={products}
-              locale={locale}
-              initialFilter={initialFilter}
-            />
+            <CategoryProductGrid products={products} locale={locale} initialFilter={initialFilter} />
           </>
         ) : (
           <div className="empty-state">
