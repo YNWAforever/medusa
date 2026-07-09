@@ -1649,6 +1649,7 @@ git commit -m "feat: build Fotomax storefront homepage"
 - Create: `apps/storefront/src/lib/catalog-view.test.ts`
 - Create: `apps/storefront/src/components/category-page.tsx`
 - Create: `apps/storefront/src/components/category-product-grid.tsx`
+- Create: `apps/storefront/src/components/catalog-pages.test.tsx`
 - Create: `apps/storefront/src/components/product-detail.tsx`
 - Create: `apps/storefront/app/[locale]/categories/[handle]/page.tsx`
 - Create: `apps/storefront/app/[locale]/products/[handle]/page.tsx`
@@ -1760,7 +1761,22 @@ export function getProductView(handle: string): ProductView | undefined {
 }
 ```
 
-- [ ] **Step 4: Create category and product components**
+- [ ] **Step 4: Write failing category and product composition tests**
+
+Create `apps/storefront/src/components/catalog-pages.test.tsx` before the components. Render `CategoryPage` and `ProductDetail` to static markup in both locales and cover:
+
+- exactly one localized `h1` and a clear product-list heading hierarchy;
+- the main-content target, complete localized category/product/service destinations, and rendered product-card count;
+- category filter group labels and all three real filter buttons;
+- decorative category-hero image semantics plus descriptive product-image alt text and responsive sizing;
+- product options rendered as read-only information with no fake configuration controls;
+- customer-facing coming-soon language with no `next phase`, Medusa, or implementation terminology.
+
+Run: `npm.cmd run test --workspace @fotomax/storefront -- src/components/catalog-pages.test.tsx`
+
+Expected: FAIL because the category and product components do not exist.
+
+- [ ] **Step 5: Create category and product components**
 
 Create `apps/storefront/src/components/category-product-grid.tsx`:
 
@@ -1923,7 +1939,7 @@ export function ProductDetail({ product, category, locale }: { product: Product;
 }
 ```
 
-- [ ] **Step 5: Create category and product routes**
+- [ ] **Step 6: Create category and product routes**
 
 Create `apps/storefront/app/[locale]/categories/[handle]/page.tsx`:
 
@@ -1969,7 +1985,7 @@ export default async function ProductRoute({ params }: { params: Promise<{ local
 }
 ```
 
-- [ ] **Step 6: Add category and product CSS**
+- [ ] **Step 7: Add category and product CSS**
 
 Append to `apps/storefront/app/globals.css`:
 
@@ -2030,6 +2046,16 @@ Append to `apps/storefront/app/globals.css`:
   border-color: #111827;
   background: #111827;
   color: #ffffff;
+}
+
+.filter-row button:hover,
+.filter-row button:active {
+  border-color: #111827;
+}
+
+.filter-row button:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 3px;
 }
 
 .filter-empty {
@@ -2114,6 +2140,12 @@ Append to `apps/storefront/app/globals.css`:
   line-height: 1.6;
 }
 
+.availability-note {
+  margin: 0;
+  color: var(--color-red-text);
+  font-weight: 900;
+}
+
 .option-stack span {
   min-height: 38px;
   display: inline-flex;
@@ -2161,6 +2193,10 @@ Append to `apps/storefront/app/globals.css`:
 }
 
 @media (max-width: 620px) {
+  .category-hero {
+    padding: 48px 0;
+  }
+
   .category-hero h1 {
     font-size: 2.5rem;
   }
@@ -2168,20 +2204,15 @@ Append to `apps/storefront/app/globals.css`:
   .product-info h1 {
     font-size: 2.25rem;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .category-tile {
-    transition: none;
-  }
-
-  .category-tile:hover {
-    transform: none;
+  .product-gallery {
+    min-height: 0;
+    aspect-ratio: 4 / 3;
   }
 }
 ```
 
-- [ ] **Step 7: Verify category and product pages**
+- [ ] **Step 8: Verify category and product pages**
 
 Run: `npm run test --workspace @fotomax/storefront`
 
@@ -2874,7 +2905,7 @@ Run: `npm run seed --workspace @fotomax/medusa`
 
 Expected: logs show 6 collections, 5 products, and 3 service entries prepared. If PostgreSQL is not running, record that the seed payload test and typecheck passed and defer live DB import to the backend setup task for the next phase.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add apps/medusa package-lock.json
