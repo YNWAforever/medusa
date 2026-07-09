@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation"
 import { localeLabels, locales, type Locale } from "@fotomax/shared"
+import { CartDrawer } from "@/components/cart-drawer"
+import { CartProvider } from "@/components/cart-provider"
 import { SiteHeader } from "@/components/site-header"
 import { assertLocale } from "@/lib/locales"
 
@@ -24,12 +26,15 @@ export default async function LocaleLayout({
   }
 
   return (
-    <div lang={locale} data-locale={locale} aria-label={localeLabels[locale]}>
-      <a className="skip-link" href="#main-content">
-        {locale === "zh-HK" ? "跳至主要內容" : "Skip to main content"}
-      </a>
-      <SiteHeader locale={locale} />
-      {children}
-    </div>
+    <CartProvider>
+      <div lang={locale} data-locale={locale} aria-label={localeLabels[locale]}>
+        <a className="skip-link" href="#main-content">
+          {locale === "zh-HK" ? "跳至主要內容" : "Skip to main content"}
+        </a>
+        <SiteHeader locale={locale} />
+        {children}
+        <CartDrawer locale={locale} />
+      </div>
+    </CartProvider>
   )
 }

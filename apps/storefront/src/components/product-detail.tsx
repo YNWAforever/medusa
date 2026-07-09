@@ -4,6 +4,7 @@ import Link from "next/link"
 import React from "react"
 import { formatPrice, localize, type Category, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "../lib/locales"
+import { AddToCartButton } from "./add-to-cart-button"
 
 export function ProductDetail({ product, category, locale }: { product: Product; category: Category; locale: Locale }) {
   const productName = localize(product.name, locale)
@@ -51,7 +52,7 @@ export function ProductDetail({ product, category, locale }: { product: Product;
           </dl>
         </section>
         <p className="availability-note">
-          {locale === "zh-HK" ? "網上訂購即將推出" : "Online ordering coming soon"}
+          <AddToCartButton product={product} locale={locale} />
         </p>
         <div className="detail-notes">
           <p>
