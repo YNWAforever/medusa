@@ -2743,16 +2743,23 @@ Create `apps/medusa/package.json`:
   },
   "dependencies": {
     "@fotomax/shared": "file:../../packages/shared",
+    "@medusajs/admin-sdk": "^2.17.2",
+    "@medusajs/cli": "^2.17.2",
     "@medusajs/framework": "^2.17.2",
     "@medusajs/medusa": "^2.17.2",
-    "@medusajs/types": "^2.17.2",
-    "@medusajs/utils": "^2.17.2",
-    "awilix": "^8.0.1",
     "pg": "^8.13.0"
   },
   "devDependencies": {
+    "@swc/core": "^1.7.28",
     "@types/node": "^22.10.0",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.5",
+    "prop-types": "^15.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.8.0",
+    "vite": "^5.4.14",
     "vitest": "^3.2.0"
   }
 }
@@ -2819,7 +2826,7 @@ describe("Fotomax Medusa seed payload", () => {
 
 - [ ] **Step 4: Run the failing seed payload test**
 
-Run: `npm run test --workspace @fotomax/medusa`
+Run: `npm.cmd run test --workspace @fotomax/medusa`
 
 Expected: FAIL because `apps/medusa/src/scripts/seed.ts` does not exist yet.
 
@@ -2926,17 +2933,21 @@ COOKIE_SECRET=fotomax-local-cookie-secret
 
 - [ ] **Step 7: Verify Medusa package**
 
-Run: `npm install`
+Run: `npm.cmd install`
 
-Run: `npm run test --workspace @fotomax/medusa`
+Run: `npm.cmd run test --workspace @fotomax/medusa`
 
 Expected: PASS with the seed payload validation test.
 
-Run: `npm run typecheck --workspace @fotomax/medusa`
+Run: `npm.cmd run typecheck --workspace @fotomax/medusa`
 
 Expected: PASS with no TypeScript errors.
 
-Run: `npm run seed --workspace @fotomax/medusa`
+Run: `npm.cmd run build --workspace @fotomax/medusa`
+
+Expected: PASS, proving the CLI and Medusa application skeleton compile together.
+
+Run: `npm.cmd run seed --workspace @fotomax/medusa`
 
 Expected: logs show 6 collections, 5 products, and 3 service entries prepared. If PostgreSQL is not running, record that the seed payload test and typecheck passed and defer live DB import to the backend setup task for the next phase.
 
