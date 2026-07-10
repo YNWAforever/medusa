@@ -2678,6 +2678,13 @@ Append to `apps/storefront/app/globals.css`:
 }
 ```
 
+### Review Amendments
+
+- Clear-all uses an inline localized confirmation with explicit clear and keep-items commands.
+- Add-to-cart remains a localized command (`Add to cart` / `Add another`) while quantity feedback lives only in a separate polite status region.
+- The drawer supports non-destructive collapse/reopen and render-driven focus restoration for collapse, reopen, cancel, and confirmed clear.
+- Locale routes have a nearest bilingual not-found boundary with `main-content` and same-locale recovery; the root fallback offers both language destinations.
+
 - [ ] **Step 9: Verify cart and service routes**
 
 Run: `npm.cmd run test --workspace @fotomax/storefront`
@@ -3049,6 +3056,15 @@ test("category page lists seeded products", async ({ page }) => {
   await page.goto("/en/categories/photo-print")
   await expect(page.getByRole("heading", { name: /Turn camera-roll moments/i })).toBeVisible()
   await expect(page.getByRole("link", { name: "Classic 4R Photo Print" })).toBeVisible()
+
+  await page.getByRole("button", { name: "Available" }).click()
+  await expect(page).toHaveURL(/filter=available/)
+  await expect(page.getByRole("button", { name: "Available" })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByText("No products match this filter yet.")).toBeVisible()
+
+  await page.getByRole("button", { name: "Show all" }).click()
+  await expect(page).not.toHaveURL(/filter=/)
+  await expect(page.getByRole("link", { name: "Classic 4R Photo Print" })).toBeVisible()
 })
 
 test("product page has a cart-ready CTA and customer-facing notes", async ({ page }) => {
@@ -3056,8 +3072,30 @@ test("product page has a cart-ready CTA and customer-facing notes", async ({ pag
   await expect(page.getByRole("heading", { name: "Classic 4R Photo Print" })).toBeVisible()
   await expect(page.getByRole("button", { name: /Add to cart/i })).toBeVisible()
   await page.getByRole("button", { name: /Add to cart/i }).click()
-  await expect(page.getByRole("button", { name: /Added to cart/i })).toBeVisible()
-  await expect(page.getByRole("complementary", { name: "Cart" })).toContainText("Classic 4R Photo Print")
+  await expect(page.getByRole("button", { name: "Add another" })).toBeVisible()
+  await expect(page.getByRole("status")).toHaveText("Added to cart, 1 item")
+  await page.getByRole("button", { name: "Add another" }).click()
+  await expect(page.getByRole("status")).toHaveText("Added to cart, 2 items")
+
+  const cart = page.getByRole("complementary", { name: "Cart" })
+  await expect(cart).toContainText("Classic 4R Photo Print")
+  await expect(cart).toContainText("2 x")
+
+  await page.getByRole("button", { name: "Collapse cart" }).click()
+  const reopen = page.getByRole("button", { name: "Open cart, 2 items" })
+  await expect(reopen).toBeFocused()
+  await reopen.click()
+  await expect(page.getByRole("button", { name: "Collapse cart" })).toBeFocused()
+
+  const clearOptions = page.getByRole("button", { name: "Clear cart options" })
+  await clearOptions.click()
+  await page.getByRole("button", { name: "Keep items" }).click()
+  await expect(clearOptions).toBeFocused()
+  await clearOptions.click()
+  await page.getByRole("button", { name: "Clear cart", exact: true }).click()
+  await expect(page.locator("#header-cart-link")).toBeFocused()
+  await expect(page.getByRole("complementary", { name: "Cart" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Add to cart" })).toBeVisible()
 })
 
 test("service page communicates the upcoming upload flow", async ({ page }) => {
@@ -3072,6 +3110,12 @@ test("store pickup navigation resolves to an honest coming-soon state", async ({
   await page.getByRole("link", { name: "Store pickup" }).click()
   await expect(page.getByRole("heading", { name: "Store Pickup & Collection" })).toBeVisible()
   await expect(page.getByText("Coming soon")).toBeVisible()
+})
+
+test("unknown service keeps locale-aware recovery", async ({ page }) => {
+  await page.goto("/en/services/not-a-service")
+  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Back to homepage" })).toHaveAttribute("href", "/en")
 })
 
 test("cart route explains the upcoming checkout flow", async ({ page }) => {
