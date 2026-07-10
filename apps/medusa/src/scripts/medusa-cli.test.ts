@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { delimiter, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -18,6 +19,12 @@ const draftOrderPackagePath = join(
   "draft-order",
   "package.json",
 )
+const callerTsconfigPath = join(
+  medusaPackagePath,
+  "..",
+  "caller",
+  "caller-tsconfig.json",
+)
 
 function resolveFrom(boundary: string, request: string): string {
   try {
@@ -29,7 +36,25 @@ function resolveFrom(boundary: string, request: string): string {
   }
 }
 
+function expectPackagePath(
+  resolution: string,
+  scope: string,
+  packageName: string,
+): void {
+  const components = resolution.split(/[\\/]+/)
+  const scopeIndex = components.lastIndexOf(scope)
+
+  expect(scopeIndex).toBeGreaterThanOrEqual(0)
+  expect(components[scopeIndex + 1]).toBe(packageName)
+}
+
 describe("Fotomax Medusa CLI launcher", () => {
+  it("keeps Medusa UI path assertions separator portable", () => {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8")
+
+    expect(source).not.toContain('stringContaining("@medusajs\\\\ui")')
+  })
+
   it("resolves Medusa UI from the app and draft-order Admin boundaries", () => {
     const previousNodePath = process.env.NODE_PATH
 
@@ -37,13 +62,16 @@ describe("Fotomax Medusa CLI launcher", () => {
       delete process.env.NODE_PATH
       require("node:module").Module._initPaths()
 
-      expect({
-        app: resolveFrom(medusaPackagePath, "@medusajs/ui"),
-        draftOrderAdmin: resolveFrom(draftOrderPackagePath, "@medusajs/ui"),
-      }).toEqual({
-        app: expect.stringContaining("@medusajs\\ui"),
-        draftOrderAdmin: expect.stringContaining("@medusajs\\ui"),
-      })
+      expectPackagePath(
+        resolveFrom(medusaPackagePath, "@medusajs/ui"),
+        "@medusajs",
+        "ui",
+      )
+      expectPackagePath(
+        resolveFrom(draftOrderPackagePath, "@medusajs/ui"),
+        "@medusajs",
+        "ui",
+      )
     } finally {
       if (previousNodePath === undefined) {
         delete process.env.NODE_PATH
@@ -55,13 +83,13 @@ describe("Fotomax Medusa CLI launcher", () => {
     }
   })
 
-  it("makes workspace TypeScript tooling visible to the hoisted CLI", () => {
+  it("deterministically configures workspace tooling for the hoisted CLI", () => {
     const previousNodePath = process.env.NODE_PATH
     const previousProject = process.env.TS_NODE_PROJECT
 
     try {
       delete process.env.NODE_PATH
-      delete process.env.TS_NODE_PROJECT
+      process.env.TS_NODE_PROJECT = callerTsconfigPath
 
       const { configureCliRuntime } = require(launcherPath) as {
         configureCliRuntime: () => {
@@ -82,6 +110,7 @@ describe("Fotomax Medusa CLI launcher", () => {
       expect(runtime.tsNodeProject).toBe(
         join(runtime.workspaceNodeModules, "..", "tsconfig.json"),
       )
+      expect(process.env.TS_NODE_PROJECT).toBe(runtime.tsNodeProject)
       expect(cliRequire.resolve("ts-node")).toContain(
         join("apps", "medusa", "node_modules", "ts-node"),
       )

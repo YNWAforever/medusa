@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { categories, products, serviceEntries } from "@fotomax/shared"
 
 const medusaRoot = fileURLToPath(new URL("../..", import.meta.url))
 const tsconfigPath = join(medusaRoot, "tsconfig.json")
@@ -23,6 +24,20 @@ process.stdout.write(JSON.stringify({
 `
 
 describe("Fotomax seed loader", () => {
+  it("keeps the shared catalog available to normal ESM consumers", () => {
+    expect({
+      categories: categories.length,
+      products: products.length,
+      serviceEntries: serviceEntries.length,
+      firstProduct: products[0].handle,
+    }).toEqual({
+      categories: 6,
+      products: 5,
+      serviceEntries: 3,
+      firstProduct: "classic-4r-photo-print",
+    })
+  })
+
   it("loads the shared catalog through the Medusa ts-node boundary", () => {
     const result = spawnSync(process.execPath, ["-e", sharedCatalogProbe], {
       cwd: medusaRoot,

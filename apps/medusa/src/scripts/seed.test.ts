@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ExecArgs } from "@medusajs/framework/types"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 
 import seedFotomax, { buildFotomaxSeedPayload } from "./seed"
 
@@ -72,14 +73,20 @@ describe("Fotomax Medusa seed payload", () => {
 
   it("logs prepared record counts through the Medusa container logger", async () => {
     const messages: string[] = []
+    const resolvedKeys: string[] = []
     const container = {
-      resolve: () => ({
-        info: (message: string) => messages.push(message),
-      }),
+      resolve: (registrationKey: string) => {
+        resolvedKeys.push(registrationKey)
+
+        return {
+          info: (message: string) => messages.push(message),
+        }
+      },
     } as unknown as ExecArgs["container"]
 
     await seedFotomax({ container, args: [] })
 
+    expect(resolvedKeys).toEqual([ContainerRegistrationKeys.LOGGER])
     expect(messages).toEqual([
       "Prepared 6 collections for Fotomax",
       "Prepared 5 products for Fotomax",

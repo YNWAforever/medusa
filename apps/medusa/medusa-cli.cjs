@@ -12,7 +12,8 @@ function configureCliRuntime() {
   }
 
   process.env.NODE_PATH = configuredPaths.join(delimiter)
-  process.env.TS_NODE_PROJECT ||= join(__dirname, "tsconfig.json")
+  process.env.TS_NODE_PROJECT = join(__dirname, "tsconfig.json")
+  // npm can hoist the CLI while keeping runtime packages workspace-local.
   Module._initPaths()
 
   return {

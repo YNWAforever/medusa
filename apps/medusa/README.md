@@ -25,7 +25,21 @@ JWT_SECRET=fotomax-local-jwt-secret
 COOKIE_SECRET=fotomax-local-cookie-secret
 ```
 
-The fallback JWT and cookie secrets in `medusa-config.ts` are local-only conveniences. Replace them with strong environment-provided secrets before any shared, preview, staging, or production deployment. This skeleton is not production-ready and does not provision a database or rotate secrets.
+The runtime resolver's fallback JWT and cookie secrets are local-only conveniences. Non-local startup requires strong environment-provided secrets as described below. This skeleton is not production-ready and does not provision a database or rotate secrets.
+
+## Runtime Configuration Policy
+
+Localhost CORS values and the fallback JWT/cookie secrets are available only when `NODE_ENV` is unset, `development`, or `test`. Explicit non-empty values still override those defaults locally.
+
+For every other environment name, including `preview`, `staging`, and `production`, startup fails immediately unless all of these variables contain non-whitespace values:
+
+- `STORE_CORS`
+- `ADMIN_CORS`
+- `AUTH_CORS`
+- `JWT_SECRET`
+- `COOKIE_SECRET`
+
+This prevents local credentials or localhost origins from silently reaching a deployed environment.
 
 Medusa CLI execution initializes the application and therefore requires a reachable PostgreSQL database even though this Phase 1 script only prepares the payload. The payload test remains the database-independent validation path.
 
