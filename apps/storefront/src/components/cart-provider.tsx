@@ -6,26 +6,38 @@ import { addCartItem, type CartItem } from "../lib/cart-state"
 
 interface CartContextValue {
   items: CartItem[]
+  isDrawerOpen: boolean
   addItem: (product: Product) => void
   clearCart: () => void
+  openCart: () => void
+  closeCart: () => void
 }
 
 const CartContext = createContext<CartContextValue | null>(null)
 
 export function CartProvider({ children, initialItems = [] }: { children: ReactNode; initialItems?: CartItem[] }) {
   const [items, setItems] = useState<CartItem[]>(initialItems)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(true)
 
   const value = useMemo<CartContextValue>(
     () => ({
       items,
+      isDrawerOpen,
       addItem(product) {
         setItems((current) => addCartItem(current, product))
+        setIsDrawerOpen(true)
       },
       clearCart() {
         setItems([])
       },
+      openCart() {
+        setIsDrawerOpen(true)
+      },
+      closeCart() {
+        setIsDrawerOpen(false)
+      },
     }),
-    [items],
+    [isDrawerOpen, items],
   )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
