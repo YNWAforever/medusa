@@ -617,11 +617,9 @@ These decisions do not change the approved product design, but the implementatio
 
 ## References
 
-- [Medusa Stripe Module Provider](https://docs.medusajs.com/resources/commerce-modules/payment/payment-provider/stripe)
 - [Medusa Payment Module Provider](https://docs.medusajs.com/resources/commerce-modules/payment/payment-provider)
 - [Medusa Infrastructure Modules](https://docs.medusajs.com/resources/infrastructure-modules)
 - [Google Photos Picker API](https://developers.google.com/photos/picker/reference/rest)
 - [Google Photos Picker Sessions](https://developers.google.com/photos/picker/guides/sessions)
 - [Dropbox Chooser](https://www.dropbox.com/developers/chooser)
 - [Apple PhotosPicker](https://developer.apple.com/documentation/photosui/photospicker)
-
