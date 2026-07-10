@@ -106,6 +106,14 @@ describe("Fotomax catalog page composition", () => {
     )
   })
 
+  it("loads the above-fold product detail image eagerly at high priority", () => {
+    const markup = renderCatalog("en").product
+    const imageMarkup = markup.match(/<img[^>]*class="product-detail-image"[^>]*>/)?.[0] ?? ""
+
+    expect(imageMarkup).toContain('loading="eager"')
+    expect(imageMarkup).toContain('fetchPriority="high"')
+  })
+
   it.each(["en", "zh-HK"] as const)("presents product options as read-only information in %s", (locale) => {
     const { product: markup } = renderCatalog(locale)
     const optionStart = markup.indexOf('<section class="option-stack"')

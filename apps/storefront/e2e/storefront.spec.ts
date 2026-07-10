@@ -28,6 +28,13 @@ test("category filters persist in the URL and recover from an empty state", asyn
 })
 
 test("product cart actions announce quantity and restore focus", async ({ page }) => {
+  const performanceWarnings: string[] = []
+  page.on("console", (message) => {
+    if (/Largest Contentful Paint|loading="eager"/i.test(message.text())) {
+      performanceWarnings.push(message.text())
+    }
+  })
+
   await page.goto("/en/products/classic-4r-photo-print")
   await expect(page.getByRole("heading", { name: "Classic 4R Photo Print" })).toBeVisible()
 
@@ -66,6 +73,15 @@ test("product cart actions announce quantity and restore focus", async ({ page }
   await expect(page.getByRole("complementary", { name: "Cart" })).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeVisible()
   await expect(status).toBeEmpty()
+
+  await addButton.click()
+  await expect(status).toHaveText("Added to cart, 1 item")
+  await expect(page.getByRole("button", { name: "Open cart, 1 item" })).toBeVisible()
+  await page.getByRole("button", { name: "Add another" }).click()
+  await expect(status).toHaveText("Added to cart, 2 items")
+  await expect(page.getByRole("button", { name: "Open cart, 2 items" })).toBeVisible()
+  await expect(page.getByRole("complementary", { name: "Cart" })).toHaveCount(0)
+  expect(performanceWarnings).toEqual([])
 })
 
 test("upload service communicates an honest coming-soon state", async ({ page }) => {
@@ -87,6 +103,35 @@ test("unknown service keeps locale-aware recovery", async ({ page }) => {
   await page.goto("/en/services/not-a-service")
   await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible()
   await expect(page.getByRole("link", { name: "Back to homepage" })).toHaveAttribute("href", "/en")
+})
+
+test("unknown nested locale routes keep nearest localized recovery", async ({ page }) => {
+  const cases = [
+    {
+      path: "/zh-HK/does-not-exist",
+      heading: "找不到頁面",
+      link: "返回首頁",
+      href: "/zh-HK",
+    },
+    {
+      path: "/en/does-not-exist",
+      heading: "Page not found",
+      link: "Back to homepage",
+      href: "/en",
+    },
+  ]
+
+  for (const localeCase of cases) {
+    const response = await page.goto(localeCase.path)
+
+    expect(response?.status()).toBe(404)
+    await expect(page.getByRole("heading", { name: localeCase.heading, exact: true })).toBeVisible()
+    await expect(page.getByRole("link", { name: localeCase.link, exact: true })).toHaveAttribute(
+      "href",
+      localeCase.href,
+    )
+    await expect(page.getByRole("heading", { name: "Page not found / 找不到頁面", exact: true })).toHaveCount(0)
+  }
 })
 
 test("cart route explains the upcoming checkout flow", async ({ page }) => {

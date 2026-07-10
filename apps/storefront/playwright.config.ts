@@ -1,17 +1,21 @@
 import { defineConfig, devices } from "@playwright/test"
 
+const host = "127.0.0.1"
+const port = process.env.FOTOMAX_E2E_PORT ?? "3100"
+const baseURL = `http://${host}:${port}`
+
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
-    url: "http://127.0.0.1:3100/zh-HK",
-    reuseExistingServer: true,
+    command: `node ../../node_modules/next/dist/bin/next dev --hostname ${host} --port ${port}`,
+    url: `${baseURL}/zh-HK`,
+    reuseExistingServer: false,
     timeout: 120000,
   },
   projects: [

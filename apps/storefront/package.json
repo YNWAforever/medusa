@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src",
+    "test": "vitest run",
     "e2e": "playwright test"
   },
   "dependencies": {

@@ -18,6 +18,8 @@ export function ProductDetail({ product, category, locale }: { product: Product;
           alt={productName}
           fill
           priority
+          loading="eager"
+          fetchPriority="high"
           sizes="(max-width: 920px) 100vw, 60vw"
         />
       </div>

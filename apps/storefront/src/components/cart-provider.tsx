@@ -28,6 +28,7 @@ export function CartProvider({ children, initialItems = [] }: { children: ReactN
       },
       clearCart() {
         setItems([])
+        setIsDrawerOpen(false)
       },
       openCart() {
         setIsDrawerOpen(true)
