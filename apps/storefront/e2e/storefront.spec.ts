@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test"
 
+test("locale routes render the correct language in initial HTML without hydration errors", async ({ page }) => {
+  const browserErrors: string[] = []
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text())
+    }
+  })
+  page.on("pageerror", (error) => browserErrors.push(error.message))
+
+  for (const locale of ["en", "zh-HK"] as const) {
+    const response = await page.goto(`/${locale}`)
+    const initialHtml = (await response?.text()) ?? ""
+
+    expect(initialHtml).toMatch(new RegExp(`<html[^>]*lang="${locale}"`))
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.lang))
+      .toBe(locale)
+  }
+
+  expect(browserErrors).toEqual([])
+})
+
 test("homepage exposes bilingual commerce navigation", async ({ page }) => {
   await page.goto("/zh-HK")
   await expect(page.getByRole("link", { name: "Fotomax" }).first()).toBeVisible()
@@ -20,11 +42,18 @@ test("category filters persist in the URL and recover from an empty state", asyn
   await page.getByRole("button", { name: "Available" }).click()
   await expect(page).toHaveURL(/filter=available/)
   await expect(page.getByRole("button", { name: "Available" })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByRole("link", { name: "Classic 4R Photo Print", exact: true })).toBeVisible()
+
+  await page.goto("/en/categories/personalized-gifts")
+  await expect(page.getByRole("link", { name: "Personalized Photo Mug", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Featured" }).click()
+  await expect(page).toHaveURL(/filter=featured/)
+  await expect(page.getByRole("button", { name: "Featured" })).toHaveAttribute("aria-pressed", "true")
   await expect(page.getByText("No products match this filter yet.")).toBeVisible()
 
   await page.getByRole("button", { name: "Show all" }).click()
   await expect(page).not.toHaveURL(/filter=/)
-  await expect(page.getByRole("link", { name: "Classic 4R Photo Print", exact: true })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Personalized Photo Mug", exact: true })).toBeVisible()
 })
 
 test("product cart actions announce quantity and restore focus", async ({ page }) => {

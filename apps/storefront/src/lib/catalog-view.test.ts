@@ -38,8 +38,15 @@ describe("catalog view selectors", () => {
     expect(filterProducts(products, "all")).toHaveLength(products.length)
     expect(featured).toHaveLength(2)
     expect(featured.every((product) => product.status === "featured")).toBe(true)
-    expect(available).toHaveLength(3)
-    expect(available.every((product) => product.status === "available")).toBe(true)
+    expect(available).toHaveLength(5)
+    expect(
+      available.every((product) =>
+        ["available", "featured"].includes(product.status),
+      ),
+    ).toBe(true)
+    expect(available.map((product) => product.handle)).toContain(
+      "classic-4r-photo-print",
+    )
   })
 
   it("parses supported URL filters and falls back to all", () => {

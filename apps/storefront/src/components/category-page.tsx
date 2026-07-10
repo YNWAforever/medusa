@@ -31,6 +31,8 @@ export function CategoryPage({
             alt=""
             fill
             priority
+            loading="eager"
+            fetchPriority="high"
             sizes="100vw"
           />
         ) : null}

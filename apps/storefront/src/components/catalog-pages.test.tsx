@@ -88,7 +88,7 @@ describe("Fotomax catalog page composition", () => {
 
   it.each([
     ["en", "featured", "Featured", 1],
-    ["zh-HK", "available", "現貨產品", 0],
+    ["zh-HK", "available", "現貨產品", 1],
   ] as const)("renders the URL-backed initial filter selection in %s", (locale, filter, label, cardCount) => {
     const { category: markup } = renderCatalog(locale, filter)
 
@@ -99,8 +99,16 @@ describe("Fotomax catalog page composition", () => {
 
   it("uses optimized decorative category media and descriptive product media", () => {
     const markup = renderCatalog("en")
+    const categoryHeroImage =
+      markup.category.match(/<img[^>]*class="category-hero-image"[^>]*>/)?.[0] ?? ""
+    const firstCategoryProductCard =
+      markup.category.match(/<article class="product-card">([\s\S]*?)<\/article>/)?.[1] ?? ""
 
     expect(markup.category).toMatch(/<img alt=""[^>]*class="category-hero-image"[^>]*sizes="100vw"/)
+    expect(categoryHeroImage).toContain('loading="eager"')
+    expect(categoryHeroImage).toContain('fetchPriority="high"')
+    expect(firstCategoryProductCard).toContain('loading="eager"')
+    expect(firstCategoryProductCard).toContain('fetchPriority="high"')
     expect(markup.product).toMatch(
       /<img alt="Classic 4R Photo Print"[^>]*class="product-detail-image"[^>]*sizes="\(max-width: 920px\) 100vw, 60vw"/,
     )

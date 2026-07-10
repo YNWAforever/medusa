@@ -48,8 +48,13 @@ export function CategoryProductGrid({
       </div>
       {visibleProducts.length > 0 ? (
         <div className="product-grid">
-          {visibleProducts.map((product) => (
-            <ProductCard key={product.handle} product={product} locale={locale} />
+          {visibleProducts.map((product, index) => (
+            <ProductCard
+              key={product.handle}
+              product={product}
+              locale={locale}
+              priority={index === 0}
+            />
           ))}
         </div>
       ) : (

@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspace @fotomax/storefront",
+    "build": "npm run build --workspace @fotomax/storefront && npm run build --workspace @fotomax/medusa",
     "check": "npm run typecheck && npm run test && npm run build",
     "dev": "npm run dev --workspace @fotomax/storefront",
     "dev:medusa": "npm run dev --workspace @fotomax/medusa",

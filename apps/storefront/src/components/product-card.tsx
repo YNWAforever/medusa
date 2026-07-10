@@ -5,7 +5,15 @@ import React from "react"
 import { formatPrice, localize, type Locale, type Product } from "@fotomax/shared"
 import { localeHref } from "../lib/locales"
 
-export function ProductCard({ product, locale }: { product: Product; locale: Locale }) {
+export function ProductCard({
+  product,
+  locale,
+  priority = false,
+}: {
+  product: Product
+  locale: Locale
+  priority?: boolean
+}) {
   const productName = localize(product.name, locale)
 
   return (
@@ -15,7 +23,15 @@ export function ProductCard({ product, locale }: { product: Product; locale: Loc
         className="product-image"
         aria-label={locale === "zh-HK" ? `查看${productName}` : `View ${productName}`}
       >
-        <Image src={product.image} alt="" fill sizes="(max-width: 920px) 100vw, 25vw" />
+        <Image
+          src={product.image}
+          alt=""
+          fill
+          priority={priority}
+          loading={priority ? "eager" : undefined}
+          fetchPriority={priority ? "high" : undefined}
+          sizes="(max-width: 920px) 100vw, 25vw"
+        />
       </Link>
       <div className="product-card-body">
         <span className="badge">{localize(product.badge, locale)}</span>

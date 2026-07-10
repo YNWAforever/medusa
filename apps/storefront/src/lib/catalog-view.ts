@@ -50,6 +50,12 @@ export function filterProducts(products: Product[], filter: ProductFilter): Prod
     return products
   }
 
+  if (filter === "available") {
+    return products.filter((product) =>
+      ["available", "featured"].includes(product.status),
+    )
+  }
+
   return products.filter((product) => product.status === filter)
 }
 

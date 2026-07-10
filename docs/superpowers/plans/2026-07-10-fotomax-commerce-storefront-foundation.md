@@ -2791,22 +2791,28 @@ Create `apps/medusa/medusa-config.ts`:
 
 ```ts
 import { defineConfig, loadEnv } from "@medusajs/framework/utils"
+import { resolveMedusaRuntimeEnv } from "./src/runtime-env"
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd())
+const runtimeEnv = resolveMedusaRuntimeEnv(process.env)
 
-export default defineConfig({
+module.exports = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     http: {
-      storeCors: process.env.STORE_CORS || "http://localhost:3000,http://localhost:8000",
-      adminCors: process.env.ADMIN_CORS || "http://localhost:9000",
-      authCors: process.env.AUTH_CORS || "http://localhost:9000,http://localhost:3000,http://localhost:8000",
-      jwtSecret: process.env.JWT_SECRET || "fotomax-local-jwt-secret",
-      cookieSecret: process.env.COOKIE_SECRET || "fotomax-local-cookie-secret",
+      storeCors: runtimeEnv.storeCors,
+      adminCors: runtimeEnv.adminCors,
+      authCors: runtimeEnv.authCors,
+      jwtSecret: runtimeEnv.jwtSecret,
+      cookieSecret: runtimeEnv.cookieSecret,
     },
   },
 })
 ```
+
+The final runtime behavior resolves localhost CORS and development secrets only
+for unset, `development`, or `test` `NODE_ENV` values. Every other environment
+requires explicit non-empty CORS and secret values before startup.
 
 - [ ] **Step 3: Write the failing seed payload test**
 
@@ -3011,18 +3017,22 @@ Create `apps/storefront/playwright.config.ts`:
 ```ts
 import { defineConfig, devices } from "@playwright/test"
 
+const host = "127.0.0.1"
+const port = process.env.FOTOMAX_E2E_PORT ?? "3100"
+const baseURL = `http://${host}:${port}`
+
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1",
-    url: "http://127.0.0.1:3000/zh-HK",
-    reuseExistingServer: true,
+    command: `node ../../node_modules/next/dist/bin/next dev --hostname ${host} --port ${port}`,
+    url: `${baseURL}/zh-HK`,
+    reuseExistingServer: false,
     timeout: 120000,
   },
   projects: [
@@ -3037,6 +3047,10 @@ export default defineConfig({
   ],
 })
 ```
+
+The final browser configuration owns a fresh local Next process on a configurable
+port and never reuses an arbitrary listener. This keeps Playwright isolated from
+unrelated development servers.
 
 - [ ] **Step 3: Create browser smoke tests**
 
@@ -3133,7 +3147,7 @@ Run: `npm.cmd exec playwright install chromium`
 
 Run: `npm.cmd run check`
 
-Expected: shared, storefront, and Medusa seed tests PASS; typecheck PASS; storefront build PASS.
+Expected: shared, storefront, and Medusa tests PASS; typechecks PASS; storefront and Medusa/Admin production builds PASS.
 
 Run: `npm.cmd run e2e --workspace @fotomax/storefront`
 

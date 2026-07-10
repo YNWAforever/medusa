@@ -22,19 +22,26 @@
 
 ## Automated Result
 
-- Root verification passed with typechecks for all three workspaces, 80 unit tests across 12 files, and the Next.js 16.2.10 production build.
-- Playwright passed 16 of 16 browser tests: eight customer journeys in both `desktop-chromium` and `mobile-chromium`.
-- The browser suite covers bilingual navigation, URL-backed filtering and empty-state recovery, repeated add-to-cart status and quantity, drawer focus restoration, clear-then-add recovery, service entry states, localized nested not-found recovery, eager product-image loading without an LCP warning, and cart-route copy.
+- Root verification passed with typechecks for all three workspaces, 85 unit tests across 13 files, and both the Next.js 16.2.10 storefront and Medusa/Admin production builds.
+- Playwright passed 18 of 18 browser tests: nine customer journeys in both `desktop-chromium` and `mobile-chromium`.
+- The browser suite covers initial SSR `lang` values for `en` and `zh-HK` without hydration errors, bilingual navigation, URL-backed filtering with a genuinely empty recovery case, repeated add-to-cart status and quantity, drawer focus restoration, clear-then-add recovery, service entry states, localized nested not-found recovery, optimized above-fold category media, and cart-route copy.
 
 ## Issues Found And Resolved
 
 - Vitest initially discovered the Playwright spec. Its config now excludes `e2e/**`, keeping unit and browser runners separate without broadening focused commands.
 - Port 3000 was occupied by an unrelated local Next.js application. The Playwright server uses the free port 3100 explicitly.
 - The cart drawer opened over the product action after the first addition and intercepted the second click on both viewports. The cart now remains collapsed during additions and exposes its compact reopen control; focused and full browser regressions pass.
-- Playwright no longer reuses an arbitrary listener. It starts this checkout's local Next executable on a configurable test port, owns that process, and stops it after the run. A clean-start run confirmed port 3100 was free before and after all 16 tests.
+- Playwright no longer reuses an arbitrary listener. It starts this checkout's local Next executable on a configurable test port, owns that process, and stops it after the run. The final clean-start run confirmed port 3100 was free before and after all 18 tests.
 - Confirmed cart clearing now resets the drawer to its collapsed state, so adding twice after a clear remains unobstructed while the header focus contract is preserved.
-- The main product image now renders with explicit eager loading and high fetch priority, and the browser regression records no Next.js LCP warning.
+- The final review recreated an LCP regression twice: first for the category hero and then for its first visible product card. Both were made explicit `loading="eager"` and `fetchPriority="high"`; the focused browser rerun and final 18-test run emitted no Next.js LCP warning.
 - A locale catch-all routes unknown nested English and Traditional Chinese URLs through the nearest localized not-found boundary with same-locale recovery.
+- The final seed contract creates regions, collections, and then products in order, maps Medusa-created collection IDs into typed product DTOs, and aborts before product creation when any collection is missing.
+
+## Final-Review RED To Green
+
+- Inherited seed and Playwright ownership RED-to-GREEN evidence remains in `.superpowers/sdd/task-7-report.md` and `.superpowers/sdd/task-8-report.md`.
+- The recreated category-media RED commands failed because the hero, then the first category card, lacked `loading="eager"`. Each passed after the narrow rendering change; `npm.cmd run test --workspace @fotomax/storefront -- src/components/catalog-pages.test.tsx` finished with 18 passing tests.
+- Patch-focused green checks passed: Medusa seed tests (19), storefront routing/catalog/Playwright-config tests (12), storefront production build, the root `npm.cmd run check`, and the clean-start 18/18 Playwright suite.
 
 ## In-App Browser Result
 

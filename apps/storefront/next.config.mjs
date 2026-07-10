@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["@fotomax/shared"],
+  experimental: {
+    globalNotFound: true,
+  },
   images: {
     remotePatterns: [
       {
