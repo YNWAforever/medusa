@@ -49,6 +49,14 @@ function expectPackagePath(
 }
 
 describe("Fotomax Medusa CLI launcher", () => {
+  it("declares workflow runtime imports as direct dependencies", () => {
+    const manifest = JSON.parse(readFileSync(medusaPackagePath, "utf8")) as {
+      dependencies?: Record<string, string>
+    }
+
+    expect(manifest.dependencies?.["@medusajs/core-flows"]).toBe("^2.17.2")
+  })
+
   it("keeps Medusa UI path assertions separator portable", () => {
     const source = readFileSync(fileURLToPath(import.meta.url), "utf8")
 

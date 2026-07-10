@@ -2816,6 +2816,8 @@ requires explicit non-empty CORS and secret values before startup.
 
 - [ ] **Step 3: Write the failing seed payload test**
 
+> **Final-state correction:** The illustrative payload-only snippets in Steps 3-6 below are retained as the original RED plan, not as current operational instructions. The completed implementation uses installed Medusa v2 workflow DTOs, creates the region and collections before products, joins products to Medusa-returned collection IDs, expands every shared option into priced variants, and defers only the three service entries that do not yet have a Medusa model. See `apps/medusa/src/scripts/seed.ts`, its workflow tests, and `apps/medusa/README.md` for the executable contract.
+
 Create `apps/medusa/src/scripts/seed.test.ts`:
 
 ```ts
@@ -2962,7 +2964,7 @@ Expected: PASS, proving the CLI and Medusa application skeleton compile together
 
 Run: `npm.cmd run seed --workspace @fotomax/medusa`
 
-Expected: logs show 6 collections, 5 products, and 3 service entries prepared. If PostgreSQL is not running, record that the seed payload test and typecheck passed and defer live DB import to the backend setup task for the next phase.
+Expected with an empty reachable PostgreSQL database: the workflow creates 1 region, 6 collections, and 5 products, then logs that 3 service entries remain deferred without a Medusa model. Repeated execution is not guaranteed to be safe. If PostgreSQL is not running, record only the expected connection refusal plus passing DTO/workflow tests; do not claim persistence.
 
 - [ ] **Step 9: Commit**
 
@@ -3074,6 +3076,11 @@ test("category page lists seeded products", async ({ page }) => {
   await page.getByRole("button", { name: "Available" }).click()
   await expect(page).toHaveURL(/filter=available/)
   await expect(page.getByRole("button", { name: "Available" })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByRole("link", { name: "Classic 4R Photo Print" })).toBeVisible()
+
+  await page.goto("/en/categories/personalized-gifts")
+  await page.getByRole("button", { name: "Featured" }).click()
+  await expect(page).toHaveURL(/filter=featured/)
   await expect(page.getByText("No products match this filter yet.")).toBeVisible()
 
   await page.getByRole("button", { name: "Show all" }).click()

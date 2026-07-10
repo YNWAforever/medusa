@@ -8,9 +8,11 @@ This app is the Medusa boundary for the Fotomax storefront foundation.
 - `npm run test --workspace @fotomax/medusa` validates the generated Fotomax payload without PostgreSQL.
 - `npm run typecheck --workspace @fotomax/medusa` checks the backend config and seed script.
 - `npm run build --workspace @fotomax/medusa` compiles the Medusa application skeleton.
-- `npm run seed --workspace @fotomax/medusa` starts the Medusa runtime, prepares the payload, and logs its record counts.
+- `npm run seed --workspace @fotomax/medusa` starts Medusa and writes the Fotomax region, collections, and products to the configured database.
 
-The seed command currently prepares data for inspection only. It does not insert collections, products, regions, or services into PostgreSQL. A live database import workflow remains deferred; a successful payload test or seed log must not be treated as proof that catalog records were persisted.
+The seed command executes Medusa's region, collection, and product creation workflows. It requires a reachable PostgreSQL database and the Medusa environment below. Shared product options are expanded into priced variants, and products are linked to the collection IDs returned by Medusa. Phase 1 service entries are deliberately excluded because they do not yet have a Medusa model.
+
+The seed is not idempotent. Re-running it against an already-seeded database may create duplicates or fail on conflicting handles or SKUs. Until an explicit repeat-run strategy is implemented, run it only against the intended empty or disposable local database. Passing payload tests proves DTO construction and workflow ordering; it does not prove that a database write completed.
 
 ## Required Local Environment
 
@@ -41,6 +43,6 @@ For every other environment name, including `preview`, `staging`, and `productio
 
 This prevents local credentials or localhost origins from silently reaching a deployed environment.
 
-Medusa CLI execution initializes the application and therefore requires a reachable PostgreSQL database even though this Phase 1 script only prepares the payload. The payload test remains the database-independent validation path.
+Medusa CLI execution initializes the application and the seed performs database writes, so it requires a reachable PostgreSQL database. The payload and workflow tests remain the database-independent validation path; a local connection-refusal probe is not persistence evidence.
 
 Use the workspace npm scripts instead of invoking `medusa` directly. The scripts use the app-owned `medusa-cli.cjs` launcher so the hoisted CLI can resolve this workspace's TypeScript tooling in the monorepo.
