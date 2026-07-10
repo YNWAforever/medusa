@@ -22,7 +22,7 @@
 
 ## Automated Result
 
-- Root verification passed with typechecks for all three workspaces, 85 unit tests across 13 files, and both the Next.js 16.2.10 storefront and Medusa/Admin production builds.
+- Root verification passed with typechecks for all three workspaces, 86 unit tests across 13 files, and both the Next.js 16.2.10 storefront and Medusa/Admin production builds.
 - Playwright passed 18 of 18 browser tests: nine customer journeys in both `desktop-chromium` and `mobile-chromium`.
 - The browser suite covers initial SSR `lang` values for `en` and `zh-HK` without hydration errors, bilingual navigation, URL-backed filtering with a genuinely empty recovery case, repeated add-to-cart status and quantity, drawer focus restoration, clear-then-add recovery, service entry states, localized nested not-found recovery, optimized above-fold category media, and cart-route copy.
 
