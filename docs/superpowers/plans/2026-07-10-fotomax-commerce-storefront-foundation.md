@@ -2716,7 +2716,7 @@ git commit -m "feat: add cart and service entry states"
 
 ---
 
-### Task 7: Medusa Backend Skeleton And Seed Payload
+### Task 7: Medusa Backend And Seed Workflows
 
 **Files:**
 - Create: `apps/medusa/package.json`
@@ -2728,7 +2728,7 @@ git commit -m "feat: add cart and service entry states"
 
 **Interfaces:**
 - Consumes: `categories`, `products`, `serviceEntries`, and `localize`.
-- Produces: `buildFotomaxSeedPayload()` for Medusa-ready seed inspection and `medusa-config.ts` with Hong Kong storefront defaults.
+- Produces: workflow-typed region, collection, and product inputs plus `medusa-config.ts` with Hong Kong storefront defaults.
 
 - [ ] **Step 1: Create Medusa package metadata**
 
@@ -2739,12 +2739,11 @@ Create `apps/medusa/package.json`:
   "name": "@fotomax/medusa",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "medusa develop",
-    "build": "medusa build",
-    "start": "medusa start",
-    "seed": "medusa exec ./src/scripts/seed.ts",
+    "dev": "node ./medusa-cli.cjs develop",
+    "build": "node ./medusa-cli.cjs build",
+    "start": "node ./medusa-cli.cjs start",
+    "seed": "node ./medusa-cli.cjs exec ./src/scripts/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -2752,8 +2751,10 @@ Create `apps/medusa/package.json`:
     "@fotomax/shared": "file:../../packages/shared",
     "@medusajs/admin-sdk": "^2.17.2",
     "@medusajs/cli": "^2.17.2",
+    "@medusajs/core-flows": "^2.17.2",
     "@medusajs/framework": "^2.17.2",
     "@medusajs/medusa": "^2.17.2",
+    "@medusajs/ui": "^4.1.19",
     "pg": "^8.13.0"
   },
   "devDependencies": {
@@ -3085,7 +3086,7 @@ test("category page lists seeded products", async ({ page }) => {
 
   await page.getByRole("button", { name: "Show all" }).click()
   await expect(page).not.toHaveURL(/filter=/)
-  await expect(page.getByRole("link", { name: "Classic 4R Photo Print" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Personalized Photo Mug" })).toBeVisible()
 })
 
 test("product page has a cart-ready CTA and customer-facing notes", async ({ page }) => {
