@@ -16,6 +16,7 @@
     "@medusajs/cli": "^2.17.2",
     "@medusajs/framework": "^2.17.2",
     "@medusajs/medusa": "^2.17.2",
+    "@medusajs/ui": "^4.1.19",
     "pg": "^8.13.0"
   },
   "devDependencies": {
