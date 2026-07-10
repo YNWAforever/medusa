@@ -17,7 +17,7 @@ const CartContext = createContext<CartContextValue | null>(null)
 
 export function CartProvider({ children, initialItems = [] }: { children: ReactNode; initialItems?: CartItem[] }) {
   const [items, setItems] = useState<CartItem[]>(initialItems)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(true)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(initialItems.length > 0)
 
   const value = useMemo<CartContextValue>(
     () => ({
@@ -25,7 +25,6 @@ export function CartProvider({ children, initialItems = [] }: { children: ReactN
       isDrawerOpen,
       addItem(product) {
         setItems((current) => addCartItem(current, product))
-        setIsDrawerOpen(true)
       },
       clearCart() {
         setItems([])
