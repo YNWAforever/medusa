@@ -11,6 +11,7 @@ import { AddToCartButton } from "./add-to-cart-button"
 import { CartDrawer } from "./cart-drawer"
 import { CartProvider } from "./cart-provider"
 import { ProductDetail } from "./product-detail"
+import { SiteHeader } from "./site-header"
 
 const product = getProduct("classic-4r-photo-print")!
 const productView = getProductView(product.handle)!
@@ -43,29 +44,31 @@ describe("Fotomax cart and service composition", () => {
   ] as const)(
     "renders a populated localized drawer without exposing destructive confirmation in %s",
     (locale, cart, clearOptions, collapse, subtotal, viewCart) => {
-    const markup = renderDrawer(locale, 2)
+      const markup = renderDrawer(locale, 2)
 
-    expect(markup).toContain(`<aside class="cart-drawer" aria-label="${cart}">`)
-    expect(markup).toContain('class="cart-line-quantity">2 x')
-    expect(markup).toContain(formatPrice(product.priceCents, locale))
-    expect(markup).toContain(`${subtotal}</span>`)
-    expect(markup).toContain(formatPrice(product.priceCents * 2, locale))
-    expect(markup).toContain(`aria-label="${clearOptions}"`)
-    expect(markup).toContain('aria-controls="cart-clear-confirmation"')
-    expect(markup).toContain('aria-expanded="false"')
-    expect(markup).toContain(`aria-label="${collapse}"`)
-    expect(markup).toContain(`href="/${locale}/cart"`)
-    expect(markup).toContain(`>${viewCart}</a>`)
-    expect(markup).not.toContain(locale === "zh-HK" ? "要移除購物車內所有商品嗎？" : "Remove every item from your cart?")
-    expect(markup).not.toContain(locale === "zh-HK" ? ">確認清空</button>" : ">Clear cart</button>")
-    expect(markup).not.toContain(locale === "zh-HK" ? ">保留商品</button>" : ">Keep items</button>")
-  },
+      expect(markup).toContain(`<aside class="cart-drawer" aria-label="${cart}">`)
+      expect(markup).toContain('class="cart-line-quantity">2 x')
+      expect(markup).toContain(formatPrice(product.priceCents, locale))
+      expect(markup).toContain(`${subtotal}</span>`)
+      expect(markup).toContain(formatPrice(product.priceCents * 2, locale))
+      expect(markup).toContain(`aria-label="${clearOptions}"`)
+      expect(markup).toContain('aria-controls="cart-clear-confirmation"')
+      expect(markup).toContain('aria-expanded="false"')
+      expect(markup).toContain(`aria-label="${collapse}"`)
+      expect(markup).toContain(`href="/${locale}/cart"`)
+      expect(markup).toContain(`>${viewCart}</a>`)
+      expect(markup).not.toContain(
+        locale === "zh-HK" ? "要移除購物車內所有商品嗎？" : "Remove every item from your cart?",
+      )
+      expect(markup).not.toContain(locale === "zh-HK" ? ">確認清空</button>" : ">Clear cart</button>")
+      expect(markup).not.toContain(locale === "zh-HK" ? ">保留商品</button>" : ">Keep items</button>")
+    },
   )
 
   it.each([
-    ["en", "Added to cart, 1 item", "Added to cart, 2 items"],
-    ["zh-HK", "已加入購物車，數量 1", "已加入購物車，數量 2"],
-  ] as const)("derives localized add feedback from the current cart quantity in %s", (locale, oneItem, twoItems) => {
+    ["en", "Add another", "Added to cart, 1 item", "Added to cart, 2 items"],
+    ["zh-HK", "再加一件", "已加入購物車，數量 1", "已加入購物車，數量 2"],
+  ] as const)("keeps the add command separate from quantity feedback in %s", (locale, addAnother, oneItem, twoItems) => {
     const empty = renderAddButton(locale)
     const one = renderAddButton(locale, 1)
     const two = renderAddButton(locale, 2)
@@ -74,6 +77,12 @@ describe("Fotomax cart and service composition", () => {
         <ProductDetail product={productView.product} category={productView.category} locale={locale} />
       </CartProvider>,
     )
+    const emptyButton = empty.match(/<button[\s\S]*?<\/button>/)?.[0] ?? ""
+    const oneButton = one.match(/<button[\s\S]*?<\/button>/)?.[0] ?? ""
+    const twoButton = two.match(/<button[\s\S]*?<\/button>/)?.[0] ?? ""
+    const emptyStatus = empty.match(/<span class="cart-command-status"[\s\S]*?<\/span>/)?.[0] ?? ""
+    const oneStatus = one.match(/<span class="cart-command-status"[\s\S]*?<\/span>/)?.[0] ?? ""
+    const twoStatus = two.match(/<span class="cart-command-status"[\s\S]*?<\/span>/)?.[0] ?? ""
 
     for (const markup of [empty, one, two, detail]) {
       expect(markup).toContain('type="button"')
@@ -81,11 +90,16 @@ describe("Fotomax cart and service composition", () => {
       expect(markup).not.toContain("disabled")
     }
 
-    expect(empty).toContain(`>${t(locale, "addToCart")}</span>`)
+    expect(emptyButton).toContain(`>${t(locale, "addToCart")}</span>`)
     expect(detail).toContain(`>${t(locale, "addToCart")}</span>`)
-    expect(one).toContain(`>${oneItem}</span>`)
-    expect(two).toContain(`>${twoItems}</span>`)
-    expect(one).not.toBe(two)
+    expect(oneButton).toContain(`>${addAnother}</span>`)
+    expect(twoButton).toContain(`>${addAnother}</span>`)
+    expect(oneButton).not.toContain(oneItem)
+    expect(twoButton).not.toContain(twoItems)
+    expect(emptyStatus).not.toContain(t(locale, "addToCart"))
+    expect(oneStatus).toContain(`>${oneItem}</span>`)
+    expect(twoStatus).toContain(`>${twoItems}</span>`)
+    expect(oneStatus).not.toBe(twoStatus)
     expect(detail).not.toContain(locale === "zh-HK" ? "網上訂購即將推出</p>" : "Online ordering coming soon</p>")
   })
 
@@ -99,7 +113,6 @@ describe("Fotomax cart and service composition", () => {
     expect(drawerSource).toContain('id="cart-clear-confirmation"')
     expect(drawerSource).toContain("clearCart()")
     expect(drawerSource).toContain("setIsConfirmingClear(false)")
-    expect(drawerSource).toContain('<button type="button" onClick={() => setIsConfirmingClear(false)}>')
     expect(drawerSource.match(/clearCart\(\)/g)).toHaveLength(1)
     expect(drawerSource).toContain("closeCart")
     expect(drawerSource).toContain("openCart")
@@ -117,6 +130,34 @@ describe("Fotomax cart and service composition", () => {
     expect(addButtonSource).not.toContain("useState")
     expect(addButtonSource).not.toContain("setAdded")
     expect(addButtonSource).toContain("cart?.items.find")
+  })
+
+  it("uses render-driven focus restoration for every conditional cart control", () => {
+    const drawerSource = readFileSync(new URL("./cart-drawer.tsx", import.meta.url), "utf8")
+    const headerMarkup = renderToStaticMarkup(<SiteHeader locale="en" />)
+    const drawerMarkup = renderDrawer("en", 2)
+    const firstConditionalReturn = drawerSource.indexOf("if (items.length === 0)")
+
+    expect(headerMarkup).toContain('id="header-cart-link"')
+    expect(drawerMarkup).toContain('id="cart-clear-trigger"')
+    expect(drawerMarkup).toContain('id="cart-collapse-button"')
+    expect(drawerSource).toContain('id="cart-reopen-button"')
+
+    expect(drawerSource).toContain("useEffect")
+    expect(drawerSource).toContain("useRef")
+    expect(drawerSource).toContain("clearTriggerRef")
+    expect(drawerSource).toContain("collapseButtonRef")
+    expect(drawerSource).toContain("reopenButtonRef")
+    expect(drawerSource).toContain("focusTarget")
+    expect(drawerSource).toContain('setFocusTarget("reopen")')
+    expect(drawerSource).toContain('setFocusTarget("collapse")')
+    expect(drawerSource).toContain('setFocusTarget("clear-trigger")')
+    expect(drawerSource).toContain('setFocusTarget("header-cart")')
+    expect(drawerSource).toContain('document.getElementById("header-cart-link")')
+    expect(drawerSource).toMatch(/\.focus\(\)/)
+    expect(drawerSource).not.toContain("setTimeout")
+    expect(drawerSource.indexOf("useEffect")).toBeLessThan(firstConditionalReturn)
+    expect(drawerSource.indexOf("useRef")).toBeLessThan(firstConditionalReturn)
   })
 
   it.each([

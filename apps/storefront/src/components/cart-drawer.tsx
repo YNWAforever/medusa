@@ -2,16 +2,44 @@
 
 import Link from "next/link"
 import { ChevronDown, ShoppingBag, Trash2 } from "lucide-react"
-import React, { useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { formatPrice, localize, t, type Locale } from "@fotomax/shared"
 import { getCartSubtotal } from "../lib/cart-state"
 import { localeHref } from "../lib/locales"
 import { useCart } from "./cart-provider"
 
+type FocusTarget = "reopen" | "collapse" | "clear-trigger" | "header-cart" | null
+
 export function CartDrawer({ locale }: { locale: Locale }) {
   const { items, isDrawerOpen, clearCart, closeCart, openCart } = useCart()
   const [isConfirmingClear, setIsConfirmingClear] = useState(false)
+  const [focusTarget, setFocusTarget] = useState<FocusTarget>(null)
+  const clearTriggerRef = useRef<HTMLButtonElement>(null)
+  const collapseButtonRef = useRef<HTMLButtonElement>(null)
+  const reopenButtonRef = useRef<HTMLButtonElement>(null)
   const itemCount = items.reduce((total, item) => total + item.quantity, 0)
+
+  useEffect(() => {
+    if (!focusTarget) {
+      return
+    }
+
+    const target =
+      focusTarget === "reopen"
+        ? reopenButtonRef.current
+        : focusTarget === "collapse"
+          ? collapseButtonRef.current
+          : focusTarget === "clear-trigger"
+            ? clearTriggerRef.current
+            : document.getElementById("header-cart-link")
+
+    if (!target) {
+      return
+    }
+
+    target.focus()
+    setFocusTarget(null)
+  }, [focusTarget, isConfirmingClear, isDrawerOpen, items.length])
 
   if (items.length === 0) {
     return null
@@ -22,7 +50,18 @@ export function CartDrawer({ locale }: { locale: Locale }) {
       locale === "zh-HK" ? `展開購物車，${itemCount} 件商品` : `Open cart, ${itemCount} ${itemCount === 1 ? "item" : "items"}`
 
     return (
-      <button className="cart-reopen" type="button" onClick={openCart} aria-label={reopenLabel} title={reopenLabel}>
+      <button
+        ref={reopenButtonRef}
+        id="cart-reopen-button"
+        className="cart-reopen"
+        type="button"
+        onClick={() => {
+          setFocusTarget("collapse")
+          openCart()
+        }}
+        aria-label={reopenLabel}
+        title={reopenLabel}
+      >
         <ShoppingBag size={18} aria-hidden="true" />
         <span>{locale === "zh-HK" ? `購物車（${itemCount}）` : `Cart (${itemCount})`}</span>
       </button>
@@ -41,6 +80,8 @@ export function CartDrawer({ locale }: { locale: Locale }) {
         </strong>
         <div className="cart-drawer-actions">
           <button
+            ref={clearTriggerRef}
+            id="cart-clear-trigger"
             className="cart-icon-button"
             type="button"
             onClick={() => setIsConfirmingClear(true)}
@@ -52,9 +93,12 @@ export function CartDrawer({ locale }: { locale: Locale }) {
             <Trash2 size={17} aria-hidden="true" />
           </button>
           <button
+            ref={collapseButtonRef}
+            id="cart-collapse-button"
             className="cart-icon-button"
             type="button"
             onClick={() => {
+              setFocusTarget("reopen")
               setIsConfirmingClear(false)
               closeCart()
             }}
@@ -78,13 +122,20 @@ export function CartDrawer({ locale }: { locale: Locale }) {
               className="cart-clear-confirm"
               type="button"
               onClick={() => {
+                setFocusTarget("header-cart")
                 clearCart()
                 setIsConfirmingClear(false)
               }}
             >
               {locale === "zh-HK" ? "確認清空" : "Clear cart"}
             </button>
-            <button type="button" onClick={() => setIsConfirmingClear(false)}>
+            <button
+              type="button"
+              onClick={() => {
+                setFocusTarget("clear-trigger")
+                setIsConfirmingClear(false)
+              }}
+            >
               {locale === "zh-HK" ? "保留商品" : "Keep items"}
             </button>
           </div>

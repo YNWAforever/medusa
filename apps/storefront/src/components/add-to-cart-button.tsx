@@ -8,9 +8,10 @@ import { useOptionalCart } from "./cart-provider"
 export function AddToCartButton({ product, locale }: { product: Product; locale: Locale }) {
   const cart = useOptionalCart()
   const quantity = cart?.items.find((item) => item.product.handle === product.handle)?.quantity ?? 0
-  const label =
+  const command = quantity === 0 ? t(locale, "addToCart") : locale === "zh-HK" ? "再加一件" : "Add another"
+  const feedback =
     quantity === 0
-      ? t(locale, "addToCart")
+      ? ""
       : locale === "zh-HK"
         ? `已加入購物車，數量 ${quantity}`
         : `Added to cart, ${quantity} ${quantity === 1 ? "item" : "items"}`
@@ -24,10 +25,10 @@ export function AddToCartButton({ product, locale }: { product: Product; locale:
         onClick={() => cart?.addItem(product)}
       >
         <ShoppingBag size={18} aria-hidden="true" />
-        <span>{label}</span>
+        <span>{command}</span>
       </button>
       <span className="cart-command-status" role="status" aria-live="polite" aria-atomic="true">
-        {quantity > 0 ? label : ""}
+        {feedback}
       </span>
     </>
   )
