@@ -20,5 +20,8 @@ module.exports = defineConfig({
   admin: {
     disable: runtimeEnv.disableAdmin,
   },
-  modules: buildInfrastructureModules(runtimeEnv),
+  modules: [
+    ...buildInfrastructureModules(runtimeEnv),
+    { resolve: "./src/modules/branch-capability" },
+  ],
 })
