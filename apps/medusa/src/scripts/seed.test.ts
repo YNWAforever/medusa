@@ -8,7 +8,9 @@ import type { WorkflowTypes } from "@medusajs/framework/types"
 import {
   buildFotomaxProductInputs,
   buildFotomaxSeedPayload,
+  reconcileFotomaxReferenceData,
   runFotomaxSeedWorkflows,
+  type FotomaxReconcileOperations,
   type FotomaxSeedOperations,
 } from "./seed"
 
@@ -162,5 +164,216 @@ describe("Fotomax Medusa seed workflows", () => {
       "Missing Medusa collection ID for photobook",
     )
     expect(productsCalled).toBe(false)
+  })
+  it("reconciles queried production records through typed create, update, and link operations", async () => {
+    const calls = {
+      regionQueries: [] as string[][],
+      collectionQueries: [] as string[][],
+      productQueries: [] as string[][],
+      variantQueries: [] as string[][],
+      salesChannelQueries: [] as string[][],
+      apiKeyQueries: [] as string[][],
+      createRegions: [] as unknown[],
+      updateRegions: [] as unknown[],
+      createCollections: [] as unknown[],
+      updateCollections: [] as unknown[],
+      createProducts: [] as unknown[],
+      updateProducts: [] as unknown[],
+      createSalesChannels: [] as unknown[],
+      updateSalesChannels: [] as unknown[],
+      createApiKeys: [] as unknown[],
+      updateApiKeys: [] as unknown[],
+      productLinks: [] as unknown[],
+      apiKeyLinks: [] as unknown[],
+    }
+
+    const operations: FotomaxReconcileOperations = {
+      async listRegions(names) {
+        calls.regionQueries.push([...names])
+        return [{ id: "reg_hk", name: "Hong Kong" }]
+      },
+      async createRegions(input) {
+        calls.createRegions.push(input)
+        return []
+      },
+      async updateRegions(input) {
+        calls.updateRegions.push(input)
+        return []
+      },
+      async listCollections(handles) {
+        calls.collectionQueries.push([...handles])
+        return [{ id: "pcol_photo_print", handle: "photo-print" }]
+      },
+      async createCollections(input) {
+        calls.createCollections.push(input)
+        return input.collections.map((collection) => ({
+          id: `pcol_${collection.handle?.replaceAll("-", "_")}`,
+          handle: collection.handle!,
+        }))
+      },
+      async updateCollections(input) {
+        calls.updateCollections.push(input)
+        return []
+      },
+      async listProducts(handles) {
+        calls.productQueries.push([...handles])
+        return [
+          {
+            id: "prod_photo",
+            handle: "classic-4r-photo-print",
+            variants: [],
+            sales_channels: [],
+          },
+        ]
+      },
+      async listVariants(skus) {
+        calls.variantQueries.push([...skus])
+        return [
+          {
+            id: "variant_glossy",
+            sku: "FOTOMAX-CLASSIC-4R-PHOTO-PRINT-1",
+          },
+        ]
+      },
+      async createProducts(input) {
+        calls.createProducts.push(input)
+        return input.products.map((product, index) => ({
+          id:
+            product.handle === "instax-mini-film-pack"
+              ? "prod_instax"
+              : `prod_created_${index}`,
+          handle: product.handle!,
+          sales_channels: [],
+        }))
+      },
+      async updateProducts(input) {
+        calls.updateProducts.push(input)
+        return []
+      },
+      async listSalesChannels(names) {
+        calls.salesChannelQueries.push([...names])
+        return []
+      },
+      async createSalesChannels(input) {
+        calls.createSalesChannels.push(input)
+        return [{ id: "sc_staging", name: input.salesChannelsData[0].name }]
+      },
+      async updateSalesChannels(input) {
+        calls.updateSalesChannels.push(input)
+        return []
+      },
+      async listApiKeys(titles) {
+        calls.apiKeyQueries.push([...titles])
+        return []
+      },
+      async createApiKeys(input) {
+        calls.createApiKeys.push(input)
+        return [
+          {
+            id: "apk_staging",
+            title: input.api_keys[0].title,
+            sales_channels: [],
+          },
+        ]
+      },
+      async updateApiKeys(input) {
+        calls.updateApiKeys.push(input)
+        return []
+      },
+      async linkProductsToSalesChannel(input) {
+        calls.productLinks.push(input)
+      },
+      async linkSalesChannelsToApiKey(input) {
+        calls.apiKeyLinks.push(input)
+      },
+    }
+
+    await reconcileFotomaxReferenceData(operations)
+
+    expect(calls.regionQueries).toEqual([["Hong Kong"]])
+    expect(calls.collectionQueries[0]).toHaveLength(6)
+    expect(calls.productQueries[0]).toHaveLength(5)
+    expect(calls.variantQueries[0]).toHaveLength(10)
+    expect(calls.variantQueries[0]).toContain(
+      "FOTOMAX-CLASSIC-4R-PHOTO-PRINT-1",
+    )
+    expect(calls.salesChannelQueries).toEqual([
+      ["Fotomax Hong Kong Staging"],
+    ])
+    expect(calls.apiKeyQueries).toEqual([["Fotomax Storefront Staging"]])
+
+    expect(calls.createRegions).toEqual([])
+    expect(calls.updateRegions).toEqual([
+      {
+        selector: { id: "reg_hk" },
+        update: {
+          name: "Hong Kong",
+          currency_code: "hkd",
+          countries: ["hk"],
+        },
+      },
+    ])
+    expect(calls.createCollections).toHaveLength(1)
+    expect(calls.updateCollections).toHaveLength(1)
+    expect(calls.createProducts).toHaveLength(1)
+    expect(calls.updateProducts).toHaveLength(1)
+
+    const updateInput = calls.updateProducts[0] as {
+      products: Array<{
+        id: string
+        handle: string
+        variants: Array<{ id?: string; sku?: string }>
+      }>
+    }
+    const updatedPhoto = updateInput.products[0]
+    expect(updatedPhoto).toMatchObject({
+      id: "prod_photo",
+      handle: "classic-4r-photo-print",
+    })
+    expect(
+      updatedPhoto.variants.find(
+        (variant) => variant.sku === "FOTOMAX-CLASSIC-4R-PHOTO-PRINT-1",
+      ),
+    ).toMatchObject({ id: "variant_glossy" })
+    expect(
+      updatedPhoto.variants.find(
+        (variant) => variant.sku === "FOTOMAX-CLASSIC-4R-PHOTO-PRINT-2",
+      ),
+    ).not.toHaveProperty("id")
+
+    expect(calls.createSalesChannels).toEqual([
+      {
+        salesChannelsData: [{ name: "Fotomax Hong Kong Staging" }],
+      },
+    ])
+    expect(calls.productLinks).toEqual([
+      {
+        id: "sc_staging",
+        add: expect.arrayContaining(["prod_photo", "prod_instax"]),
+        remove: [],
+      },
+    ])
+    expect(
+      (calls.productLinks[0] as { add: string[] }).add,
+    ).toHaveLength(2)
+
+    expect(calls.createApiKeys).toEqual([
+      {
+        api_keys: [
+          {
+            title: "Fotomax Storefront Staging",
+            type: "publishable",
+            created_by: "fotomax-seed",
+          },
+        ],
+      },
+    ])
+    expect(calls.apiKeyLinks).toEqual([
+      {
+        id: "apk_staging",
+        add: ["sc_staging"],
+        remove: [],
+      },
+    ])
   })
 })

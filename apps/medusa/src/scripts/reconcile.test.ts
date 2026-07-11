@@ -39,4 +39,20 @@ describe("reconcileByKey", () => {
     expect(secondPlan.create).toEqual([])
     expect(secondPlan.update).toHaveLength(2)
   })
+
+  it("rejects duplicate existing keys deterministically", () => {
+    expect(() =>
+      reconcileByKey({
+        desired: [{ sku: "FOTOMAX-4R-1" }],
+        existing: [
+          { id: "variant_first", sku: "FOTOMAX-4R-1" },
+          { id: "variant_second", sku: "FOTOMAX-4R-1" },
+        ],
+        desiredKey: (value) => value.sku,
+        existingKey: (value) => value.sku,
+        toCreate: (value) => value,
+        toUpdate: (next, current) => ({ id: current.id, ...next }),
+      }),
+    ).toThrow('Duplicate existing key "FOTOMAX-4R-1"')
+  })
 })

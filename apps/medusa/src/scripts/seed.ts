@@ -1,18 +1,26 @@
 import {
+  createApiKeysWorkflow,
   createCollectionsWorkflow,
   createProductsWorkflow,
-  createApiKeysWorkflow,
   createRegionsWorkflow,
   createSalesChannelsWorkflow,
   linkProductsToSalesChannelWorkflow,
   linkSalesChannelsToApiKeyWorkflow,
+  type CreateApiKeysWorkflowInput,
   type CreateCollectionsWorkflowInput,
   type CreateProductsWorkflowInput,
+  type CreateSalesChannelsWorkflowInput,
+  type LinkProductsToSalesChannelWorkflowInput,
+  type LinkSalesChannelsToApiKeyWorkflowInput,
   updateApiKeysWorkflow,
   updateCollectionsWorkflow,
   updateProductsWorkflow,
   updateRegionsWorkflow,
   updateSalesChannelsWorkflow,
+  type UpdateApiKeysWorkflowInput,
+  type UpdateCollectionsWorkflowInput,
+  type UpdateProductsWorkflowInputProducts,
+  type UpdateSalesChannelsWorkflowInput,
 } from "@medusajs/core-flows"
 import type { ExecArgs, Logger, WorkflowTypes } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
@@ -168,7 +176,9 @@ function createMedusaSeedOperations(
 
 export default async function seedFotomax({ container }: ExecArgs) {
   const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER)
-  await reconcileFotomaxReferenceData(container)
+  await reconcileFotomaxReferenceData(
+    createMedusaReconcileOperations(container),
+  )
   logger.info("Reconciled Fotomax Medusa reference data")
   logger.info(
     `Deferred ${serviceEntries.length} next-phase service entries without a Medusa model`,
@@ -178,14 +188,53 @@ export default async function seedFotomax({ container }: ExecArgs) {
 const STAGING_SALES_CHANNEL_NAME = "Fotomax Hong Kong Staging"
 const STAGING_PUBLISHABLE_KEY_TITLE = "Fotomax Storefront Staging"
 
-type ReferenceRecord = {
+export type ReferenceRecord = {
   id: string
   name?: string
   title?: string
   handle?: string
-  sku?: string
-  variants?: Array<{ id: string; sku?: string }>
+  sku?: string | null
+  variants?: Array<{ id: string; sku?: string | null }>
   sales_channels?: Array<{ id: string }>
+}
+
+export interface FotomaxReconcileOperations {
+  listRegions(names: readonly string[]): Promise<ReferenceRecord[]>
+  createRegions(
+    input: WorkflowTypes.RegionWorkflow.CreateRegionsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  updateRegions(
+    input: WorkflowTypes.RegionWorkflow.UpdateRegionsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  listCollections(handles: readonly string[]): Promise<ReferenceRecord[]>
+  createCollections(
+    input: CreateCollectionsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  updateCollections(
+    input: UpdateCollectionsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  listProducts(handles: readonly string[]): Promise<ReferenceRecord[]>
+  listVariants(skus: readonly string[]): Promise<ReferenceRecord[]>
+  createProducts(input: CreateProductsWorkflowInput): Promise<ReferenceRecord[]>
+  updateProducts(
+    input: UpdateProductsWorkflowInputProducts,
+  ): Promise<ReferenceRecord[]>
+  listSalesChannels(names: readonly string[]): Promise<ReferenceRecord[]>
+  createSalesChannels(
+    input: CreateSalesChannelsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  updateSalesChannels(
+    input: UpdateSalesChannelsWorkflowInput,
+  ): Promise<ReferenceRecord[]>
+  listApiKeys(titles: readonly string[]): Promise<ReferenceRecord[]>
+  createApiKeys(input: CreateApiKeysWorkflowInput): Promise<ReferenceRecord[]>
+  updateApiKeys(input: UpdateApiKeysWorkflowInput): Promise<ReferenceRecord[]>
+  linkProductsToSalesChannel(
+    input: LinkProductsToSalesChannelWorkflowInput,
+  ): Promise<void>
+  linkSalesChannelsToApiKey(
+    input: LinkSalesChannelsToApiKeyWorkflowInput,
+  ): Promise<void>
 }
 
 async function listReferenceRecords(
@@ -199,64 +248,316 @@ async function listReferenceRecords(
   return result.data as ReferenceRecord[]
 }
 
-async function reconcileFotomaxReferenceData(container: ExecArgs["container"]) {
+function createMedusaReconcileOperations(
+  container: ExecArgs["container"],
+): FotomaxReconcileOperations {
+  return {
+    listRegions(names) {
+      return listReferenceRecords(container, "region", ["id", "name"], {
+        name: [...names],
+      })
+    },
+    async createRegions(input) {
+      return (await createRegionsWorkflow(container).run({ input })).result
+    },
+    async updateRegions(input) {
+      return (await updateRegionsWorkflow(container).run({ input })).result
+    },
+    listCollections(handles) {
+      return listReferenceRecords(
+        container,
+        "product_collection",
+        ["id", "handle"],
+        { handle: [...handles] },
+      )
+    },
+    async createCollections(input) {
+      return (await createCollectionsWorkflow(container).run({ input })).result
+    },
+    async updateCollections(input) {
+      return (await updateCollectionsWorkflow(container).run({ input })).result
+    },
+    listProducts(handles) {
+      return listReferenceRecords(
+        container,
+        "product",
+        ["id", "handle", "sales_channels.id"],
+        { handle: [...handles] },
+      )
+    },
+    listVariants(skus) {
+      return listReferenceRecords(
+        container,
+        "product_variant",
+        ["id", "sku"],
+        { sku: [...skus] },
+      )
+    },
+    async createProducts(input) {
+      return (await createProductsWorkflow(container).run({ input })).result
+    },
+    async updateProducts(input) {
+      return (await updateProductsWorkflow(container).run({ input })).result
+    },
+    listSalesChannels(names) {
+      return listReferenceRecords(
+        container,
+        "sales_channel",
+        ["id", "name"],
+        { name: [...names] },
+      )
+    },
+    async createSalesChannels(input) {
+      return (await createSalesChannelsWorkflow(container).run({ input })).result
+    },
+    async updateSalesChannels(input) {
+      return (await updateSalesChannelsWorkflow(container).run({ input })).result
+    },
+    listApiKeys(titles) {
+      return listReferenceRecords(
+        container,
+        "api_key",
+        ["id", "title", "sales_channels.id"],
+        { title: [...titles] },
+      )
+    },
+    async createApiKeys(input) {
+      return (await createApiKeysWorkflow(container).run({ input })).result
+    },
+    async updateApiKeys(input) {
+      return (await updateApiKeysWorkflow(container).run({ input })).result
+    },
+    async linkProductsToSalesChannel(input) {
+      await linkProductsToSalesChannelWorkflow(container).run({ input })
+    },
+    async linkSalesChannelsToApiKey(input) {
+      await linkSalesChannelsToApiKeyWorkflow(container).run({ input })
+    },
+  }
+}
+
+type ProductUpdate =
+  UpdateProductsWorkflowInputProducts["products"][number]
+type VariantUpdate = NonNullable<ProductUpdate["variants"]>[number]
+
+export async function reconcileFotomaxReferenceData(
+  operations: FotomaxReconcileOperations,
+): Promise<void> {
   const payload = buildFotomaxSeedPayload()
-  const existingRegions = await listReferenceRecords(container, "region", ["id", "name"], { name: payload.regions.map((region) => region.name) })
+  const desiredRegionNames = payload.regions.map((region) => region.name)
+  const existingRegions = await operations.listRegions(desiredRegionNames)
   const regionPlan = reconcileByKey({
-    desired: payload.regions, existing: existingRegions,
-    desiredKey: (region) => region.name, existingKey: (region) => region.name ?? "",
-    toCreate: (region) => region, toUpdate: (region, existing) => ({ id: existing.id, ...region }),
+    desired: payload.regions,
+    existing: existingRegions,
+    desiredKey: (region) => region.name,
+    existingKey: (region) => region.name ?? "",
+    toCreate: (region) => region,
+    toUpdate: (region, existing) => ({
+      selector: { id: existing.id },
+      update: region,
+    }),
   })
-  if (regionPlan.create.length) await createRegionsWorkflow(container).run({ input: { regions: regionPlan.create } })
-  for (const region of regionPlan.update) await updateRegionsWorkflow(container).run({ input: { selector: { id: region.id }, update: region } })
 
-  const existingCollections = await listReferenceRecords(container, "product_collection", ["id", "handle"], { handle: payload.collections.map((collection) => collection.handle) })
-  const collectionPlan = reconcileByKey({
-    desired: payload.collections, existing: existingCollections,
-    desiredKey: (collection) => collection.handle ?? "", existingKey: (collection) => collection.handle ?? "",
-    toCreate: (collection) => collection, toUpdate: (collection, existing) => ({ id: existing.id, ...collection }),
-  })
-  const createdCollections = collectionPlan.create.length ? (await createCollectionsWorkflow(container).run({ input: { collections: collectionPlan.create } })).result : []
-  for (const collection of collectionPlan.update) await updateCollectionsWorkflow(container).run({ input: { selector: { id: collection.id }, update: collection } })
-  const collectionIdsByHandle = new Map([...existingCollections, ...createdCollections].flatMap((collection) => collection.handle ? [[collection.handle, collection.id] as const] : []))
-  const desiredProducts = buildFotomaxProductInputs(collectionIdsByHandle)
-  const existingProducts = await listReferenceRecords(container, "product", ["id", "handle", "variants.id", "variants.sku"], { handle: desiredProducts.map((product) => product.handle) })
-  await listReferenceRecords(container, "product_variant", ["id", "sku"], { sku: desiredProducts.flatMap((product) => product.variants?.map((variant) => variant.sku) ?? []) })
-  const productPlan = reconcileByKey({
-    desired: desiredProducts, existing: existingProducts,
-    desiredKey: (product) => product.handle ?? "", existingKey: (product) => product.handle ?? "",
-    toCreate: (product) => product,
-    toUpdate: (product, existing) => ({ ...product, id: existing.id, variants: product.variants?.map((variant) => ({ ...variant, id: existing.variants?.find((current) => current.sku === variant.sku)?.id })) }),
-  })
-  if (productPlan.create.length) await createProductsWorkflow(container).run({ input: { products: productPlan.create } })
-  if (productPlan.update.length) await updateProductsWorkflow(container).run({ input: { products: productPlan.update as never } })
-
-  const existingChannels = await listReferenceRecords(container, "sales_channel", ["id", "name"], { name: [STAGING_SALES_CHANNEL_NAME] })
-  const channelPlan = reconcileByKey({
-    desired: [{ name: STAGING_SALES_CHANNEL_NAME }], existing: existingChannels,
-    desiredKey: (channel) => channel.name, existingKey: (channel) => channel.name ?? "",
-    toCreate: (channel) => channel, toUpdate: (channel, existing) => ({ id: existing.id, ...channel }),
-  })
-  const createdChannels = channelPlan.create.length ? (await createSalesChannelsWorkflow(container).run({ input: { salesChannelsData: channelPlan.create } })).result : []
-  for (const channel of channelPlan.update) await updateSalesChannelsWorkflow(container).run({ input: { selector: { id: channel.id }, update: { name: channel.name } } })
-  const salesChannelId = [...existingChannels, ...createdChannels][0]?.id
-  if (!salesChannelId) throw new Error("Missing Fotomax staging sales channel")
-
-  const existingKeys = await listReferenceRecords(container, "api_key", ["id", "title", "sales_channels.id"], { title: [STAGING_PUBLISHABLE_KEY_TITLE] })
-  const keyPlan = reconcileByKey({
-    desired: [{ title: STAGING_PUBLISHABLE_KEY_TITLE }], existing: existingKeys,
-    desiredKey: (key) => key.title, existingKey: (key) => key.title ?? "",
-    toCreate: (key) => ({ ...key, type: "publishable" as const, created_by: "fotomax-seed" }),
-    toUpdate: (key, existing) => ({ id: existing.id, ...key }),
-  })
-  const createdKeys = keyPlan.create.length ? (await createApiKeysWorkflow(container).run({ input: { api_keys: keyPlan.create } })).result : []
-  for (const key of keyPlan.update) await updateApiKeysWorkflow(container).run({ input: { selector: { id: key.id }, update: { title: key.title } } })
-  const publishableKey = ([...existingKeys, ...createdKeys] as ReferenceRecord[])[0]
-  if (!publishableKey) throw new Error("Missing Fotomax storefront publishable key")
-  if (!publishableKey.sales_channels?.some((channel: { id: string }) => channel.id === salesChannelId)) {
-    await linkSalesChannelsToApiKeyWorkflow(container).run({ input: { id: publishableKey.id, add: [salesChannelId], remove: [] } })
+  if (regionPlan.create.length) {
+    await operations.createRegions({ regions: regionPlan.create })
+  }
+  for (const input of regionPlan.update) {
+    await operations.updateRegions(input)
   }
 
-  const publishedProducts = await listReferenceRecords(container, "product", ["id", "handle"], { handle: products.filter((product) => product.commerceMode !== "deferred").map((product) => product.handle) })
-  await linkProductsToSalesChannelWorkflow(container).run({ input: { id: salesChannelId, add: publishedProducts.map((product) => product.id), remove: [] } })
+  const desiredCollectionHandles = payload.collections.map(
+    (collection) => collection.handle ?? "",
+  )
+  const existingCollections = await operations.listCollections(
+    desiredCollectionHandles,
+  )
+  const collectionPlan = reconcileByKey({
+    desired: payload.collections,
+    existing: existingCollections,
+    desiredKey: (collection) => collection.handle ?? "",
+    existingKey: (collection) => collection.handle ?? "",
+    toCreate: (collection) => collection,
+    toUpdate: (collection, existing) => ({
+      selector: { id: existing.id },
+      update: collection,
+    }),
+  })
+  const createdCollections = collectionPlan.create.length
+    ? await operations.createCollections({
+        collections: collectionPlan.create,
+      })
+    : []
+
+  for (const input of collectionPlan.update) {
+    await operations.updateCollections(input)
+  }
+
+  const collectionIdsByHandle = new Map(
+    [...existingCollections, ...createdCollections].flatMap((collection) =>
+      collection.handle
+        ? [[collection.handle, collection.id] as const]
+        : [],
+    ),
+  )
+  const desiredProducts = buildFotomaxProductInputs(collectionIdsByHandle)
+  const desiredProductHandles = desiredProducts.map(
+    (product) => product.handle ?? "",
+  )
+  const desiredVariants = desiredProducts.flatMap(
+    (product) => product.variants ?? [],
+  )
+  const desiredVariantSkus = desiredVariants.map(
+    (variant) => variant.sku ?? "",
+  )
+  const [existingProducts, existingVariants] = await Promise.all([
+    operations.listProducts(desiredProductHandles),
+    operations.listVariants(desiredVariantSkus),
+  ])
+  const variantPlan = reconcileByKey({
+    desired: desiredVariants,
+    existing: existingVariants,
+    desiredKey: (variant) => variant.sku ?? "",
+    existingKey: (variant) => variant.sku ?? "",
+    toCreate: (variant): VariantUpdate => ({ ...variant }),
+    toUpdate: (variant, existing): VariantUpdate => ({
+      ...variant,
+      id: existing.id,
+    }),
+  })
+  const variantsBySku = new Map(
+    [...variantPlan.create, ...variantPlan.update].map((variant) => [
+      variant.sku ?? "",
+      variant,
+    ]),
+  )
+  const productPlan = reconcileByKey({
+    desired: desiredProducts,
+    existing: existingProducts,
+    desiredKey: (product) => product.handle ?? "",
+    existingKey: (product) => product.handle ?? "",
+    toCreate: (product) => product,
+    toUpdate: (product, existing): ProductUpdate => {
+      const { variants, ...productData } = product
+      return {
+        ...productData,
+        handle: productData.handle ?? undefined,
+        id: existing.id,
+        variants: variants?.map((variant) => {
+          const reconciled = variantsBySku.get(variant.sku ?? "")
+          if (!reconciled) {
+            throw new Error(
+              `Missing reconciled variant for SKU ${variant.sku ?? ""}`,
+            )
+          }
+          return reconciled
+        }),
+      }
+    },
+  })
+  const createdProducts = productPlan.create.length
+    ? await operations.createProducts({ products: productPlan.create })
+    : []
+
+  if (productPlan.update.length) {
+    await operations.updateProducts({ products: productPlan.update })
+  }
+
+  const existingChannels = await operations.listSalesChannels([
+    STAGING_SALES_CHANNEL_NAME,
+  ])
+  const channelPlan = reconcileByKey({
+    desired: [{ name: STAGING_SALES_CHANNEL_NAME }],
+    existing: existingChannels,
+    desiredKey: (channel) => channel.name,
+    existingKey: (channel) => channel.name ?? "",
+    toCreate: (channel) => channel,
+    toUpdate: (channel, existing) => ({
+      selector: { id: existing.id },
+      update: { name: channel.name },
+    }),
+  })
+  const createdChannels = channelPlan.create.length
+    ? await operations.createSalesChannels({
+        salesChannelsData: channelPlan.create,
+      })
+    : []
+
+  for (const input of channelPlan.update) {
+    await operations.updateSalesChannels(input)
+  }
+
+  const salesChannelId = [...existingChannels, ...createdChannels][0]?.id
+  if (!salesChannelId) {
+    throw new Error("Missing Fotomax staging sales channel")
+  }
+
+  const productRecordsByHandle = new Map(
+    [...existingProducts, ...createdProducts].flatMap((product) =>
+      product.handle ? [[product.handle, product] as const] : [],
+    ),
+  )
+  const productIdsToLink = products
+    .filter((product) => product.commerceMode !== "deferred")
+    .map((product) => {
+      const record = productRecordsByHandle.get(product.handle)
+      if (!record) {
+        throw new Error(`Missing Medusa product for ${product.handle}`)
+      }
+      return record.sales_channels?.some(
+        (channel) => channel.id === salesChannelId,
+      )
+        ? undefined
+        : record.id
+    })
+    .filter((id): id is string => Boolean(id))
+
+  if (productIdsToLink.length) {
+    await operations.linkProductsToSalesChannel({
+      id: salesChannelId,
+      add: productIdsToLink,
+      remove: [],
+    })
+  }
+
+  const existingKeys = await operations.listApiKeys([
+    STAGING_PUBLISHABLE_KEY_TITLE,
+  ])
+  const keyPlan = reconcileByKey({
+    desired: [{ title: STAGING_PUBLISHABLE_KEY_TITLE }],
+    existing: existingKeys,
+    desiredKey: (key) => key.title,
+    existingKey: (key) => key.title ?? "",
+    toCreate: (key) => ({
+      ...key,
+      type: "publishable" as const,
+      created_by: "fotomax-seed",
+    }),
+    toUpdate: (key, existing) => ({
+      selector: { id: existing.id },
+      update: { title: key.title },
+    }),
+  })
+  const createdKeys = keyPlan.create.length
+    ? await operations.createApiKeys({ api_keys: keyPlan.create })
+    : []
+
+  for (const input of keyPlan.update) {
+    await operations.updateApiKeys(input)
+  }
+
+  const publishableKey = [...existingKeys, ...createdKeys][0]
+  if (!publishableKey) {
+    throw new Error("Missing Fotomax storefront publishable key")
+  }
+  if (
+    !publishableKey.sales_channels?.some(
+      (channel) => channel.id === salesChannelId,
+    )
+  ) {
+    await operations.linkSalesChannelsToApiKey({
+      id: publishableKey.id,
+      add: [salesChannelId],
+      remove: [],
+    })
+  }
 }

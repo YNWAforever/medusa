@@ -11,9 +11,16 @@ export function reconcileByKey<TDesired, TExisting, TCreate, TUpdate>(args: {
   toCreate: (value: TDesired) => TCreate
   toUpdate: (desired: TDesired, existing: TExisting) => TUpdate
 }): ReconcilePlan<TCreate, TUpdate> {
-  const existingByKey = new Map(
-    args.existing.map((value) => [args.existingKey(value), value]),
-  )
+  const existingByKey = new Map<string, TExisting>()
+
+  for (const value of args.existing) {
+    const key = args.existingKey(value)
+    if (existingByKey.has(key)) {
+      throw new Error(`Duplicate existing key "${key}"`)
+    }
+    existingByKey.set(key, value)
+  }
+
   const create: TCreate[] = []
   const update: TUpdate[] = []
 
