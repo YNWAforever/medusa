@@ -32,6 +32,16 @@ describe("Fotomax shared catalog", () => {
     expect(new Set(products.map((product) => product.handle)).size).toBe(products.length)
   })
 
+  it("classifies products for their current commerce release", () => {
+    expect(Object.fromEntries(products.map((product) => [product.handle, product.commerceMode]))).toEqual({
+      "classic-4r-photo-print": "photo_print",
+      "premium-layflat-photobook": "deferred",
+      "photo-mug-gift": "deferred",
+      "instax-mini-film-pack": "retail",
+      "desktop-acrylic-photo-block": "deferred",
+    })
+  })
+
   it("links every product to an existing category", () => {
     const handles = new Set(categories.map((category) => category.handle))
     for (const product of products) {

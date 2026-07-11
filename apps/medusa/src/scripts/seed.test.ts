@@ -69,6 +69,25 @@ describe("Fotomax Medusa seed workflows", () => {
     expect(photoPrint?.variants).toHaveLength(2)
   })
 
+  it("uses commerce modes to publish only supported catalog items", () => {
+    const productInputs = buildFotomaxProductInputs(collectionIds())
+
+    expect(Object.fromEntries(productInputs.map((product) => [product.handle, product.status]))).toEqual({
+      "classic-4r-photo-print": "published",
+      "premium-layflat-photobook": "draft",
+      "photo-mug-gift": "draft",
+      "instax-mini-film-pack": "published",
+      "desktop-acrylic-photo-block": "draft",
+    })
+    expect(productInputs.map((product) => product.metadata)).toEqual([
+      expect.objectContaining({ commerce_mode: "photo_print" }),
+      expect.objectContaining({ commerce_mode: "deferred" }),
+      expect.objectContaining({ commerce_mode: "deferred" }),
+      expect.objectContaining({ commerce_mode: "retail" }),
+      expect.objectContaining({ commerce_mode: "deferred" }),
+    ])
+  })
+
   it("keeps every shared price in Medusa major units for every generated variant", () => {
     const productInputs = buildFotomaxProductInputs(collectionIds())
 
