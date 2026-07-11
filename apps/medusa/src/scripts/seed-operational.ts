@@ -7,6 +7,7 @@ import {
   createShippingOptionsWorkflow,
   createShippingProfilesWorkflow,
   createStockLocationsWorkflow,
+  dismissLinksWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
   updateInventoryLevelsWorkflow,
   updateRegionsWorkflow,
@@ -175,6 +176,13 @@ export interface FotomaxOperationalOperations {
     data: FulfillmentSetInput,
   ): Promise<OperationalRecord>
   updateFulfillmentSet(id: string, data: FulfillmentSetInput): Promise<void>
+  listFulfillmentSetLocationLinks(
+    fulfillmentSetIds: readonly string[],
+  ): Promise<OperationalRecord[]>
+  dismissFulfillmentSetFromStockLocation(
+    locationId: string,
+    fulfillmentSetId: string,
+  ): Promise<void>
   linkFulfillmentSetToStockLocation(
     locationId: string,
     fulfillmentSetId: string,
@@ -224,6 +232,10 @@ export interface FotomaxOperationalOperations {
     locationIds: readonly string[],
     capabilityIds: readonly string[],
   ): Promise<OperationalRecord[]>
+  dismissStockLocationBranchCapability(
+    locationId: string,
+    branchCapabilityId: string,
+  ): Promise<void>
   linkStockLocationToBranchCapability(
     locationId: string,
     branchCapabilityId: string,
@@ -256,6 +268,47 @@ function requiredRecord<T>(record: T | undefined, message: string): T {
     throw new Error(message)
   }
   return record
+}
+
+export type ExclusiveLink = {
+  leftId: string
+  rightId: string
+}
+
+export async function reconcileExclusiveLinks(args: {
+  desired: readonly ExclusiveLink[]
+  existing: readonly ExclusiveLink[]
+  leftExclusive: boolean
+  rightExclusive: boolean
+  dismiss(link: ExclusiveLink): Promise<void>
+  create(link: ExclusiveLink): Promise<void>
+}): Promise<void> {
+  const current = [...args.existing]
+  uniqueRecordsByKey(current, (link) => link.leftId + ":" + link.rightId)
+
+  for (const desired of args.desired) {
+    const conflicts = current.filter(
+      (link) =>
+        (link.leftId !== desired.leftId || link.rightId !== desired.rightId) &&
+        ((args.leftExclusive && link.leftId === desired.leftId) ||
+          (args.rightExclusive && link.rightId === desired.rightId)),
+    )
+
+    for (const conflict of conflicts) {
+      await args.dismiss(conflict)
+      current.splice(current.indexOf(conflict), 1)
+    }
+
+    if (
+      !current.some(
+        (link) =>
+          link.leftId === desired.leftId && link.rightId === desired.rightId,
+      )
+    ) {
+      await args.create(desired)
+      current.push(desired)
+    }
+  }
 }
 
 export async function reconcileFotomaxOperationalData(
@@ -339,70 +392,81 @@ export async function reconcileFotomaxOperationalData(
     existingSets,
     (set) => set.name ?? "",
   )
+  const existingSetLocationRecords =
+    await operations.listFulfillmentSetLocationLinks(
+      existingSets.map((fulfillmentSet) => fulfillmentSet.id),
+    )
+  const existingSetLocationLinks: ExclusiveLink[] =
+    existingSetLocationRecords.map((link) => ({
+      leftId: requiredRecord(
+        link.stock_location_id,
+        "Missing stock location ID on fulfillment-set link " + link.id,
+      ),
+      rightId: requiredRecord(
+        link.fulfillment_set_id,
+        "Missing fulfillment set ID on location link " + link.id,
+      ),
+    }))
+  const desiredSetLocationLinks: ExclusiveLink[] = []
+
   for (const pickup of pickupSets) {
     const location = requiredRecord(
       locationsByName.get(pickup.locationName),
       `Missing stock location ${pickup.locationName}`,
     )
     let fulfillmentSet = setsByName.get(pickup.set.name)
-    const created = !fulfillmentSet
     if (!fulfillmentSet) {
       fulfillmentSet = await operations.createLocationFulfillmentSet(
         location.id,
         pickup.set,
       )
       setsByName.set(pickup.set.name, fulfillmentSet)
+      existingSetLocationLinks.push({
+        leftId: location.id,
+        rightId: fulfillmentSet.id,
+      })
     } else {
       await operations.updateFulfillmentSet(fulfillmentSet.id, pickup.set)
     }
-    if (
-      !location.fulfillment_sets?.some(
-        (linkedSet) => linkedSet.id === fulfillmentSet.id,
-      )
-    ) {
-      if (!created) {
-        await operations.linkFulfillmentSetToStockLocation(
-          location.id,
-          fulfillmentSet.id,
-        )
-      }
-      location.fulfillment_sets = [
-        ...(location.fulfillment_sets ?? []),
-        { id: fulfillmentSet.id },
-      ]
-    }
+    desiredSetLocationLinks.push({
+      leftId: location.id,
+      rightId: fulfillmentSet.id,
+    })
   }
+
   const firstLocation = requiredRecord(
     locationsByName.get(desiredLocations[0].name),
     "Missing first Fotomax staging stock location",
   )
   let sharedDeliverySet = setsByName.get(deliverySet.name)
-  const createdDeliverySet = !sharedDeliverySet
   if (!sharedDeliverySet) {
     sharedDeliverySet = await operations.createLocationFulfillmentSet(
       firstLocation.id,
       deliverySet,
     )
     setsByName.set(deliverySet.name, sharedDeliverySet)
+    existingSetLocationLinks.push({
+      leftId: firstLocation.id,
+      rightId: sharedDeliverySet.id,
+    })
   } else {
     await operations.updateFulfillmentSet(sharedDeliverySet.id, deliverySet)
   }
-  if (
-    !firstLocation.fulfillment_sets?.some(
-      (linkedSet) => linkedSet.id === sharedDeliverySet.id,
-    )
-  ) {
-    if (!createdDeliverySet) {
-      await operations.linkFulfillmentSetToStockLocation(
-        firstLocation.id,
-        sharedDeliverySet.id,
-      )
-    }
-    firstLocation.fulfillment_sets = [
-      ...(firstLocation.fulfillment_sets ?? []),
-      { id: sharedDeliverySet.id },
-    ]
-  }
+  desiredSetLocationLinks.push({
+    leftId: firstLocation.id,
+    rightId: sharedDeliverySet.id,
+  })
+
+  await reconcileExclusiveLinks({
+    desired: desiredSetLocationLinks,
+    existing: existingSetLocationLinks,
+    leftExclusive: false,
+    rightExclusive: true,
+    dismiss: ({ leftId, rightId }) =>
+      operations.dismissFulfillmentSetFromStockLocation(leftId, rightId),
+    create: ({ leftId, rightId }) =>
+      operations.linkFulfillmentSetToStockLocation(leftId, rightId),
+  })
 
   const desiredZones = [
     ...pickupSets.map((pickup) => ({
@@ -700,12 +764,18 @@ export async function reconcileFotomaxOperationalData(
     stockLocations.map((location) => location.id),
     capabilityRecords.map((capability) => capability.id),
   )
-  const capabilityLinksByKey = uniqueRecordsByKey(
-    existingCapabilityLinks,
-    (link) =>
-      `${link.stock_location_id ?? ""}:${link.branch_capability_id ?? ""}`,
-  )
-  for (const branch of stagingStockLocations) {
+  const existingCapabilityLinkPairs: ExclusiveLink[] =
+    existingCapabilityLinks.map((link) => ({
+      leftId: requiredRecord(
+        link.stock_location_id,
+        "Missing stock location ID on branch capability link " + link.id,
+      ),
+      rightId: requiredRecord(
+        link.branch_capability_id,
+        "Missing branch capability ID on stock location link " + link.id,
+      ),
+    }))
+  const desiredCapabilityLinkPairs = stagingStockLocations.map((branch) => {
     const location = requiredRecord(
       locationsByName.get(`Fotomax Staging ${branch.handle}`),
       `Missing stock location for ${branch.handle}`,
@@ -714,13 +784,19 @@ export async function reconcileFotomaxOperationalData(
       capabilitiesByHandle.get(branch.handle),
       `Missing branch capability ${branch.handle}`,
     )
-    if (!capabilityLinksByKey.has(`${location.id}:${capability.id}`)) {
-      await operations.linkStockLocationToBranchCapability(
-        location.id,
-        capability.id,
-      )
-    }
-  }
+    return { leftId: location.id, rightId: capability.id }
+  })
+
+  await reconcileExclusiveLinks({
+    desired: desiredCapabilityLinkPairs,
+    existing: existingCapabilityLinkPairs,
+    leftExclusive: true,
+    rightExclusive: true,
+    dismiss: ({ leftId, rightId }) =>
+      operations.dismissStockLocationBranchCapability(leftId, rightId),
+    create: ({ leftId, rightId }) =>
+      operations.linkStockLocationToBranchCapability(leftId, rightId),
+  })
 
   const regions = await operations.listRegions(["Hong Kong"])
   const region = requiredRecord(
@@ -878,6 +954,29 @@ export function createMedusaOperationalOperations(
     },
     async updateFulfillmentSet(id, data) {
       await fulfillmentService.updateFulfillmentSets({ id, ...data })
+    },
+    async listFulfillmentSetLocationLinks(fulfillmentSetIds) {
+      if (!fulfillmentSetIds.length) {
+        return []
+      }
+      return listReferenceRecords(
+        container,
+        "location_fulfillment_set",
+        ["id", "stock_location_id", "fulfillment_set_id"],
+        { fulfillment_set_id: [...fulfillmentSetIds] },
+      )
+    },
+    async dismissFulfillmentSetFromStockLocation(
+      locationId,
+      fulfillmentSetId,
+    ) {
+      const links: LinkDefinition[] = [
+        {
+          [Modules.STOCK_LOCATION]: { stock_location_id: locationId },
+          [Modules.FULFILLMENT]: { fulfillment_set_id: fulfillmentSetId },
+        },
+      ]
+      await dismissLinksWorkflow(container).run({ input: links })
     },
     async linkFulfillmentSetToStockLocation(locationId, fulfillmentSetId) {
       const links: LinkDefinition[] = [
@@ -1086,16 +1185,46 @@ export function createMedusaOperationalOperations(
     async updateBranchCapability(id, data) {
       await branchCapabilityService.updateBranchCapabilities(id, data)
     },
-    listBranchCapabilityLinks(locationIds, capabilityIds) {
-      return listReferenceRecords(
-        container,
-        stockLocationBranchCapabilityLink.entryPoint,
-        ["id", "stock_location_id", "branch_capability_id"],
+    async listBranchCapabilityLinks(locationIds, capabilityIds) {
+      const queries: Array<Promise<OperationalRecord[]>> = []
+      if (locationIds.length) {
+        queries.push(
+          listReferenceRecords(
+            container,
+            stockLocationBranchCapabilityLink.entryPoint,
+            ["id", "stock_location_id", "branch_capability_id"],
+            { stock_location_id: [...locationIds] },
+          ),
+        )
+      }
+      if (capabilityIds.length) {
+        queries.push(
+          listReferenceRecords(
+            container,
+            stockLocationBranchCapabilityLink.entryPoint,
+            ["id", "stock_location_id", "branch_capability_id"],
+            { branch_capability_id: [...capabilityIds] },
+          ),
+        )
+      }
+      const records = (await Promise.all(queries)).flat()
+      return [
+        ...uniqueRecordsByKey(records, (record) => record.id).values(),
+      ]
+    },
+    async dismissStockLocationBranchCapability(
+      locationId,
+      branchCapabilityId,
+    ) {
+      const links: LinkDefinition[] = [
         {
-          stock_location_id: [...locationIds],
-          branch_capability_id: [...capabilityIds],
+          [Modules.STOCK_LOCATION]: { stock_location_id: locationId },
+          [BRANCH_CAPABILITY_MODULE]: {
+            branch_capability_id: branchCapabilityId,
+          },
         },
-      )
+      ]
+      await dismissLinksWorkflow(container).run({ input: links })
     },
     async linkStockLocationToBranchCapability(
       locationId,

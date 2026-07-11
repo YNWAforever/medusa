@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  reconcileExclusiveLinks,
   reconcileFotomaxOperationalData,
   type FotomaxOperationalOperations,
 } from "./seed-operational"
@@ -39,6 +40,12 @@ function operationalOperations(
       return unexpected("createLocationFulfillmentSet")
     },
     async updateFulfillmentSet() {},
+    async listFulfillmentSetLocationLinks() {
+      return []
+    },
+    async dismissFulfillmentSetFromStockLocation() {
+      return unexpected("dismissFulfillmentSetFromStockLocation")
+    },
     async linkFulfillmentSetToStockLocation() {
       return unexpected("linkFulfillmentSetToStockLocation")
     },
@@ -91,6 +98,9 @@ function operationalOperations(
     async updateBranchCapability() {},
     async listBranchCapabilityLinks() {
       return []
+    },
+    async dismissStockLocationBranchCapability() {
+      return unexpected("dismissStockLocationBranchCapability")
     },
     async linkStockLocationToBranchCapability() {
       return unexpected("linkStockLocationToBranchCapability")
@@ -362,6 +372,20 @@ describe("Fotomax operational seed reconciliation", () => {
       async listFulfillmentSets() {
         return [...pickupSets, deliverySet]
       },
+      async listFulfillmentSetLocationLinks() {
+        return [
+          ...pickupSets.map((set, index) => ({
+            id: "locfs_pickup_" + index,
+            stock_location_id: locations[index].id,
+            fulfillment_set_id: set.id,
+          })),
+          {
+            id: "locfs_delivery",
+            stock_location_id: locations[0].id,
+            fulfillment_set_id: deliverySet.id,
+          },
+        ]
+      },
       async createLocationFulfillmentSet() {
         createCalls.push("fulfillment-set")
         return deliverySet
@@ -501,6 +525,78 @@ describe("Fotomax operational seed reconciliation", () => {
     expect(serviceZoneUpdates).toEqual([])
     expect(paymentUpdates).toEqual([
       ["pp_existing", "pp_system_default"],
+    ])
+  })
+
+  it("repairs swapped pickup and misplaced delivery links", async () => {
+    const dismissed: string[] = []
+    const created: string[] = []
+
+    await reconcileExclusiveLinks({
+      desired: [
+        { leftId: "sloc_central", rightId: "fuset_central" },
+        { leftId: "sloc_mong_kok", rightId: "fuset_mong_kok" },
+        { leftId: "sloc_central", rightId: "fuset_delivery" },
+      ],
+      existing: [
+        { leftId: "sloc_mong_kok", rightId: "fuset_central" },
+        { leftId: "sloc_central", rightId: "fuset_mong_kok" },
+        { leftId: "sloc_sha_tin", rightId: "fuset_delivery" },
+      ],
+      leftExclusive: false,
+      rightExclusive: true,
+      async dismiss(link) {
+        dismissed.push(link.leftId + ":" + link.rightId)
+      },
+      async create(link) {
+        created.push(link.leftId + ":" + link.rightId)
+      },
+    })
+
+    expect(dismissed).toEqual([
+      "sloc_mong_kok:fuset_central",
+      "sloc_central:fuset_mong_kok",
+      "sloc_sha_tin:fuset_delivery",
+    ])
+    expect(created).toEqual([
+      "sloc_central:fuset_central",
+      "sloc_mong_kok:fuset_mong_kok",
+      "sloc_central:fuset_delivery",
+    ])
+  })
+
+  it("repairs cross-wired one-to-one branch capability links", async () => {
+    const dismissed: string[] = []
+    const created: string[] = []
+
+    await reconcileExclusiveLinks({
+      desired: [
+        { leftId: "sloc_central", rightId: "brcap_central" },
+        { leftId: "sloc_mong_kok", rightId: "brcap_mong_kok" },
+        { leftId: "sloc_sha_tin", rightId: "brcap_sha_tin" },
+      ],
+      existing: [
+        { leftId: "sloc_central", rightId: "brcap_mong_kok" },
+        { leftId: "sloc_mong_kok", rightId: "brcap_central" },
+        { leftId: "sloc_sha_tin", rightId: "brcap_sha_tin" },
+      ],
+      leftExclusive: true,
+      rightExclusive: true,
+      async dismiss(link) {
+        dismissed.push(link.leftId + ":" + link.rightId)
+      },
+      async create(link) {
+        created.push(link.leftId + ":" + link.rightId)
+      },
+    })
+
+    expect(dismissed).toEqual([
+      "sloc_central:brcap_mong_kok",
+      "sloc_mong_kok:brcap_central",
+    ])
+    expect(created).toEqual([
+      "sloc_central:brcap_central",
+      "sloc_mong_kok:brcap_mong_kok",
     ])
   })
 })
