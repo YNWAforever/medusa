@@ -115,4 +115,39 @@ describe("Medusa catalog projectors", () => {
     expect(() => projectCatalogProduct({ ...product, metadata: { ...product.metadata, commerce_mode: "rental" } }, "en"))
       .toThrow("Unknown commerce_mode: rental")
   })
+  it.each([-1, Number.POSITIVE_INFINITY, Number.NaN])(
+    "rejects an invalid calculated amount of %s",
+    (calculatedAmount) => {
+      expect(() => projectCatalogProduct(
+        {
+          ...product,
+          variants: [{
+            ...product.variants[0],
+            calculated_price: { calculated_amount: calculatedAmount },
+          }],
+        },
+        "en",
+      )).toThrow("Medusa calculated_amount must be a non-negative number")
+    },
+  )
+
+  it("projects managed inventory as unavailable when out of stock and available when backorders are allowed", () => {
+    const outOfStock = projectCatalogProduct(
+      {
+        ...product,
+        variants: [{ ...product.variants[0], inventory_quantity: 0, allow_backorder: false }],
+      },
+      "en",
+    )
+    const backorderable = projectCatalogProduct(
+      {
+        ...product,
+        variants: [{ ...product.variants[0], inventory_quantity: 0, allow_backorder: true }],
+      },
+      "en",
+    )
+
+    expect(outOfStock.variants[0].inventory).toEqual({ managed: true, available: false, quantity: 0 })
+    expect(backorderable.variants[0].inventory).toEqual({ managed: true, available: true, quantity: 0 })
+  })
 })

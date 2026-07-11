@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it, vi } from "vitest"
+vi.mock("server-only", () => ({}))
 import { getStorefrontEnv } from "./env"
 
 const productionEnv = {
@@ -9,6 +12,12 @@ const productionEnv = {
 }
 
 describe("storefront Medusa environment", () => {
+  it("marks the session-secret reader as server-only", async () => {
+    const source = await readFile(fileURLToPath(new URL("./env.ts", import.meta.url)), "utf8")
+
+    expect(source).toMatch(/^import "server-only"/)
+  })
+
   it.each([
     "MEDUSA_BACKEND_URL",
     "MEDUSA_PUBLISHABLE_KEY",

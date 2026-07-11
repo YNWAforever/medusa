@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import type Medusa from "@medusajs/js-sdk"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 vi.mock("./client", () => ({ createStoreSdk: vi.fn() }))
-import { getCatalogCategories, type StorefrontCatalogSdk } from "./catalog"
+import { createStorefrontCatalogSdk, getCatalogCategories, type StorefrontCatalogSdk } from "./catalog"
 
 const collections = [
   {
@@ -45,31 +46,31 @@ function product(id: string, collectionHandle: string) {
 
 function createSdk(): StorefrontCatalogSdk {
   return {
-    store: {
-      region: {
-        list: vi.fn(async () => ({ regions: [{ id: "reg_hk", currency_code: "hkd" }], count: 1, offset: 0, limit: 100 })),
-      },
-      collection: {
-        list: vi.fn(async ({ offset }) => ({
-          collections: offset === 0 ? [collections[0]] : [collections[1]],
-          count: 2,
-          offset,
-          limit: 1,
-        })),
-      },
-      product: {
-        list: vi.fn(async ({ offset }) => ({
-          products: offset === 0 ? [product("prod_print", "photo-print")] : [product("prod_film", "instax-film")],
-          count: 2,
-          offset,
-          limit: 1,
-        })),
-      },
-    },
+    listRegions: vi.fn(async () => ({
+      items: [{ id: "reg_hk", currency_code: "hkd" }],
+      count: 1,
+    })),
+    listCollections: vi.fn(async ({ offset }) => ({
+      items: offset === 0 ? [collections[0]] : [collections[1]],
+      count: 2,
+    })),
+    listProducts: vi.fn(async ({ offset }) => ({
+      items: offset === 0 ? [product("prod_print", "photo-print")] : [product("prod_film", "instax-film")],
+      count: 2,
+    })),
   }
 }
-
 describe("live Medusa catalog access", () => {
+  it("binds the catalog adapter to installed Medusa list-method signatures", () => {
+    expectTypeOf(createStorefrontCatalogSdk).parameter(0).toEqualTypeOf<Medusa>()
+    expectTypeOf<Parameters<StorefrontCatalogSdk["listRegions"]>[0]>()
+      .toEqualTypeOf<NonNullable<Parameters<Medusa["store"]["region"]["list"]>[0]>>()
+    expectTypeOf<Parameters<StorefrontCatalogSdk["listCollections"]>[0]>()
+      .toEqualTypeOf<NonNullable<Parameters<Medusa["store"]["collection"]["list"]>[0]>>()
+    expectTypeOf<Parameters<StorefrontCatalogSdk["listProducts"]>[0]>()
+      .toEqualTypeOf<NonNullable<Parameters<Medusa["store"]["product"]["list"]>[0]>>()
+  })
+
   it("discovers the HK region, paginates catalog responses, and projects HKD cents", async () => {
     const sdk = createSdk()
 
@@ -78,15 +79,29 @@ describe("live Medusa catalog access", () => {
       expect.objectContaining({ handle: "instax-film", products: [expect.objectContaining({ handle: "prod_film" })] }),
     ])
 
-    expect(sdk.store.collection.list).toHaveBeenNthCalledWith(1, expect.objectContaining({ offset: 0, limit: 1 }))
-    expect(sdk.store.collection.list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 1, limit: 1 }))
-    expect(sdk.store.product.list).toHaveBeenNthCalledWith(1, expect.objectContaining({ region_id: "reg_hk", offset: 0, limit: 1, fields: expect.stringMatching(/variants\.inventory_quantity.*variants\.calculated_price\.\*/) }))
-    expect(sdk.store.product.list).toHaveBeenNthCalledWith(2, expect.objectContaining({ region_id: "reg_hk", offset: 1, limit: 1 }))
+    expect(sdk.listCollections).toHaveBeenNthCalledWith(1, expect.objectContaining({ offset: 0, limit: 1 }))
+    expect(sdk.listCollections).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 1, limit: 1 }))
+    expect(sdk.listProducts).toHaveBeenNthCalledWith(1, expect.objectContaining({ region_id: "reg_hk", offset: 0, limit: 1, fields: expect.stringMatching(/variants\.inventory_quantity.*variants\.calculated_price\.\*/) }))
+    expect(sdk.listProducts).toHaveBeenNthCalledWith(2, expect.objectContaining({ region_id: "reg_hk", offset: 1, limit: 1 }))
+  })
+
+  it("rejects a paginated response that exceeds its reported count", async () => {
+    const sdk = createSdk()
+    sdk.listCollections = async () => ({
+      items: collections,
+      count: 1,
+      offset: 0,
+      limit: 2,
+    })
+
+    await expect(getCatalogCategories("en", sdk, 2)).rejects.toThrow(
+      "Medusa returned more records than its reported count",
+    )
   })
 
   it("propagates Medusa network errors without fixture fallback", async () => {
     const sdk = createSdk()
-    sdk.store.product.list = async () => {
+    sdk.listProducts = async () => {
       throw new Error("Medusa unavailable")
     }
 

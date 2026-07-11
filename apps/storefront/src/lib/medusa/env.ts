@@ -1,3 +1,5 @@
+import "server-only"
+
 export interface StorefrontEnv {
   backendUrl: string
   publishableKey: string
