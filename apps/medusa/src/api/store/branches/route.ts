@@ -61,6 +61,19 @@ export interface BranchInventoryLevel {
   available_quantity: number
 }
 
+export function buildBranchInventoryLevel(level: {
+  inventory_item_id: string
+  location_id: string
+  stocked_quantity: number
+  reserved_quantity: number
+}): BranchInventoryLevel {
+  return {
+    inventory_item_id: level.inventory_item_id,
+    location_id: level.location_id,
+    available_quantity: level.stocked_quantity - level.reserved_quantity,
+  }
+}
+
 export interface BranchPickupShippingOption {
   id: string
   name: string
@@ -332,14 +345,15 @@ export function createMedusaBranchCompatibilityOperations(
         fields: [
           "inventory_item_id",
           "location_id",
-          "available_quantity",
+          "stocked_quantity",
+          "reserved_quantity",
         ],
         filters: {
           inventory_item_id: inventoryItemIds,
           location_id: locationIds,
         },
       })
-      return result.data
+      return result.data.map(buildBranchInventoryLevel)
     },
     async listPickupShippingOptions(branchHandles) {
       if (branchHandles.length === 0) {

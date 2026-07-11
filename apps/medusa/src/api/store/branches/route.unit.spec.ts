@@ -5,10 +5,28 @@ vi.mock("../../../links/stock-location-branch-capability", () => ({
   default: { entryPoint: "stock_location_branch_capability" },
 }))
 import {
+  buildBranchInventoryLevel,
   evaluateStoreBranches,
   handleStoreBranchesGet,
   type BranchCompatibilityOperations,
 } from "./route"
+
+describe("branch inventory query normalization", () => {
+  it("derives available quantity from stored stock and reservations", () => {
+    expect(
+      buildBranchInventoryLevel({
+        inventory_item_id: "iitem_1",
+        location_id: "sloc_1",
+        stocked_quantity: 25,
+        reserved_quantity: 3,
+      }),
+    ).toEqual({
+      inventory_item_id: "iitem_1",
+      location_id: "sloc_1",
+      available_quantity: 22,
+    })
+  })
+})
 
 const branches = [
   {

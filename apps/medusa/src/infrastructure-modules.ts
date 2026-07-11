@@ -1,10 +1,20 @@
 import type { RuntimeEnv } from "./runtime-env"
 
-export interface InfrastructureModule {
+interface RedisModuleProvider {
+  id: string
   resolve: string
+  is_default: true
   options: {
     redisUrl: string
   }
+}
+
+export interface InfrastructureModule {
+  resolve: string
+  options:
+    | { redisUrl: string }
+    | { redis: { redisUrl: string } }
+    | { providers: RedisModuleProvider[] }
 }
 
 export function buildInfrastructureModules(
@@ -20,20 +30,38 @@ export function buildInfrastructureModules(
 
   return [
     {
-      resolve: "@medusajs/event-bus-redis",
+      resolve: "@medusajs/medusa/event-bus-redis",
       options: { redisUrl: env.redisUrl },
     },
     {
-      resolve: "@medusajs/caching-redis",
-      options: { redisUrl: env.redisUrl },
+      resolve: "@medusajs/medusa/caching",
+      options: {
+        providers: [
+          {
+            id: "caching-redis",
+            resolve: "@medusajs/medusa/caching-redis",
+            is_default: true,
+            options: { redisUrl: env.redisUrl },
+          },
+        ],
+      },
     },
     {
-      resolve: "@medusajs/locking-redis",
-      options: { redisUrl: env.redisUrl },
+      resolve: "@medusajs/medusa/locking",
+      options: {
+        providers: [
+          {
+            id: "locking-redis",
+            resolve: "@medusajs/medusa/locking-redis",
+            is_default: true,
+            options: { redisUrl: env.redisUrl },
+          },
+        ],
+      },
     },
     {
-      resolve: "@medusajs/workflow-engine-redis",
-      options: { redisUrl: env.redisUrl },
+      resolve: "@medusajs/medusa/workflow-engine-redis",
+      options: { redis: { redisUrl: env.redisUrl } },
     },
   ]
 }

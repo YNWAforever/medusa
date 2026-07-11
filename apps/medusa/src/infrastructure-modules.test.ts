@@ -1,3 +1,4 @@
+import { defineConfig } from "@medusajs/framework/utils"
 import { describe, expect, it } from "vitest"
 
 import { buildInfrastructureModules } from "./infrastructure-modules"
@@ -19,16 +20,51 @@ describe("Medusa infrastructure modules", () => {
     const modules = buildInfrastructureModules(loadRuntimeEnv(deployedEnv))
 
     expect(modules.map((module) => module.resolve)).toEqual([
-      "@medusajs/event-bus-redis",
-      "@medusajs/caching-redis",
-      "@medusajs/locking-redis",
-      "@medusajs/workflow-engine-redis",
+      "@medusajs/medusa/event-bus-redis",
+      "@medusajs/medusa/caching",
+      "@medusajs/medusa/locking",
+      "@medusajs/medusa/workflow-engine-redis",
     ])
-    expect(modules).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ options: { redisUrl: "redis://cache:6379" } }),
-      ]),
-    )
+    expect(modules).toEqual([
+      expect.objectContaining({
+        options: { redisUrl: "redis://cache:6379" },
+      }),
+      expect.objectContaining({
+        options: {
+          providers: [
+            expect.objectContaining({
+              id: "caching-redis",
+              resolve: "@medusajs/medusa/caching-redis",
+              is_default: true,
+              options: { redisUrl: "redis://cache:6379" },
+            }),
+          ],
+        },
+      }),
+      expect.objectContaining({
+        options: {
+          providers: [
+            expect.objectContaining({
+              id: "locking-redis",
+              resolve: "@medusajs/medusa/locking-redis",
+              is_default: true,
+              options: { redisUrl: "redis://cache:6379" },
+            }),
+          ],
+        },
+      }),
+      expect.objectContaining({
+        options: { redis: { redisUrl: "redis://cache:6379" } },
+      }),
+    ])
+  })
+
+  it("builds module definitions accepted by Medusa defineConfig", () => {
+    expect(() =>
+      defineConfig({
+        modules: buildInfrastructureModules(loadRuntimeEnv(deployedEnv)),
+      }),
+    ).not.toThrow()
   })
 
   it("leaves infrastructure modules to Medusa Cloud", () => {

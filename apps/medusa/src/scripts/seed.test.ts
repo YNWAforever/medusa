@@ -349,6 +349,7 @@ describe("Fotomax Medusa seed workflows", () => {
       id: "prod_photo",
       handle: "classic-4r-photo-print",
     })
+    expect(updatedPhoto).not.toHaveProperty("options")
     expect(
       updatedPhoto.variants.find(
         (variant) => variant.sku === "FOTOMAX-CLASSIC-4R-PHOTO-PRINT-1",

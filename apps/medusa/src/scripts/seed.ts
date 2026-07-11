@@ -443,7 +443,7 @@ export async function reconcileFotomaxReferenceData(
     existingKey: (product) => product.handle ?? "",
     toCreate: (product) => product,
     toUpdate: (product, existing): ProductUpdate => {
-      const { variants, ...productData } = product
+      const { options: _options, variants, ...productData } = product
       return {
         ...productData,
         handle: productData.handle ?? undefined,

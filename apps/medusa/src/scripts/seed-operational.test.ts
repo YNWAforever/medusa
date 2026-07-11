@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildBranchCapabilityUpdateInput,
+  dedupeBranchCapabilityLinkRecords,
+  FULFILLMENT_SET_QUERY_FIELDS,
   reconcileExclusiveLinks,
   reconcileFotomaxOperationalData,
   type FotomaxOperationalOperations,
@@ -32,6 +35,9 @@ function operationalOperations(
     async updateStockLocation() {},
     async linkSalesChannelToStockLocation() {
       return unexpected("linkSalesChannelToStockLocation")
+    },
+    async linkFulfillmentProviderToStockLocation() {
+      return unexpected("linkFulfillmentProviderToStockLocation")
     },
     async listFulfillmentSets() {
       return []
@@ -123,6 +129,44 @@ function operationalOperations(
 }
 
 describe("Fotomax operational seed reconciliation", () => {
+  it("uses Query Graph syntax for nested fulfillment-set relations", () => {
+    expect(FULFILLMENT_SET_QUERY_FIELDS).toEqual([
+      "id",
+      "name",
+      "type",
+      "service_zones.*",
+      "service_zones.geo_zones.*",
+    ])
+  })
+
+  it("places the branch capability id inside generated service updates", () => {
+    expect(
+      buildBranchCapabilityUpdateInput("brcap_central", {
+        handle: "central-staging",
+        name_en: "Central Staging Pickup",
+        name_zh_hk: "Central Staging Pickup",
+        district_en: "Central",
+        district_zh_hk: "Central",
+        pickup_enabled: true,
+        test_only: true,
+        lead_time_business_days: 2,
+        supported_print_skus: ["PRINT-1"],
+      }),
+    ).toMatchObject({ id: "brcap_central", handle: "central-staging" })
+  })
+
+  it("deduplicates the same branch link returned by two-sided queries", () => {
+    const link = {
+      id: "link_central",
+      stock_location_id: "sloc_central",
+      branch_capability_id: "brcap_central",
+    }
+
+    expect(dedupeBranchCapabilityLinkRecords([link, { ...link }])).toEqual([
+      link,
+    ])
+  })
+
   it("creates staging fulfillment, retail inventory, capabilities, and the HK payment association", async () => {
     const createdLocations: Parameters<
       FotomaxOperationalOperations["createStockLocations"]
@@ -146,6 +190,7 @@ describe("Fotomax operational seed reconciliation", () => {
       FotomaxOperationalOperations["createBranchCapabilities"]
     >[0] = []
     const salesChannelLinks: Array<[string, string]> = []
+    const fulfillmentProviderLinks: Array<[string, string]> = []
     const variantLinks: Array<[string, string]> = []
     const capabilityLinks: Array<[string, string]> = []
     const paymentUpdates: string[][] = []
@@ -158,10 +203,14 @@ describe("Fotomax operational seed reconciliation", () => {
           id: `sloc_${index + 1}`,
           sales_channels: [],
           fulfillment_sets: [],
+          fulfillment_providers: [],
         }))
       },
       async linkSalesChannelToStockLocation(locationId, salesChannelId) {
         salesChannelLinks.push([locationId, salesChannelId])
+      },
+      async linkFulfillmentProviderToStockLocation(locationId, providerId) {
+        fulfillmentProviderLinks.push([locationId, providerId])
       },
       async createLocationFulfillmentSet(locationId, data) {
         createdSets.push([locationId, data])
@@ -240,6 +289,11 @@ describe("Fotomax operational seed reconciliation", () => {
       ),
     )
     expect(salesChannelLinks).toHaveLength(3)
+    expect(fulfillmentProviderLinks).toEqual([
+      ["sloc_1", "manual_manual"],
+      ["sloc_2", "manual_manual"],
+      ["sloc_3", "manual_manual"],
+    ])
     expect(createdSets).toHaveLength(4)
     expect(createdZones).toHaveLength(4)
     expect(
@@ -308,6 +362,7 @@ describe("Fotomax operational seed reconciliation", () => {
         { id: `fuset_pickup_${branch.handle}` },
         ...(index === 0 ? [{ id: "fuset_delivery" }] : []),
       ],
+      fulfillment_providers: [{ id: "manual_manual" }],
     }))
     const pickupSets = stagingBranches.map((branch) => ({
       id: `fuset_pickup_${branch.handle}`,

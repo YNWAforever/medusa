@@ -33,6 +33,13 @@ import {
 } from "./seed-data"
 
 const STAGING_SALES_CHANNEL_NAME = "Fotomax Hong Kong Staging"
+export const FULFILLMENT_SET_QUERY_FIELDS = [
+  "id",
+  "name",
+  "type",
+  "service_zones.*",
+  "service_zones.geo_zones.*",
+] as const
 
 async function listReferenceRecords(
   container: ExecArgs["container"],
@@ -114,6 +121,13 @@ type BranchCapabilityInput = {
   supported_print_skus: string[]
 }
 
+export function buildBranchCapabilityUpdateInput(
+  id: string,
+  data: BranchCapabilityInput,
+): BranchCapabilityInput & { id: string } {
+  return { id, ...data }
+}
+
 type OperationalRecord = {
   id: string
   name?: string
@@ -126,6 +140,7 @@ type OperationalRecord = {
   metadata?: Record<string, unknown>
   address?: StockLocationInput["address"]
   fulfillment_sets?: Array<{ id: string }>
+  fulfillment_providers?: Array<{ id: string }>
   service_zones?: ServiceZoneRecord[]
   geo_zones?: Array<{ id?: string; type: string; country_code?: string }>
   fulfillment_set_id?: string
@@ -159,6 +174,24 @@ type ServiceZoneRecord = OperationalRecord & {
   geo_zones: Array<{ id?: string; type: string; country_code?: string }>
 }
 
+export function dedupeBranchCapabilityLinkRecords(
+  records: OperationalRecord[],
+): OperationalRecord[] {
+  const recordsById = new Map<string, OperationalRecord>()
+  for (const record of records) {
+    const existing = recordsById.get(record.id)
+    if (
+      existing &&
+      (existing.stock_location_id !== record.stock_location_id ||
+        existing.branch_capability_id !== record.branch_capability_id)
+    ) {
+      throw new Error(`Conflicting branch capability link "${record.id}"`)
+    }
+    recordsById.set(record.id, record)
+  }
+  return [...recordsById.values()]
+}
+
 export interface FotomaxOperationalOperations {
   listSalesChannels(names: readonly string[]): Promise<OperationalRecord[]>
   listStockLocations(names: readonly string[]): Promise<OperationalRecord[]>
@@ -169,6 +202,10 @@ export interface FotomaxOperationalOperations {
   linkSalesChannelToStockLocation(
     locationId: string,
     salesChannelId: string,
+  ): Promise<void>
+  linkFulfillmentProviderToStockLocation(
+    locationId: string,
+    providerId: string,
   ): Promise<void>
   listFulfillmentSets(names: readonly string[]): Promise<OperationalRecord[]>
   createLocationFulfillmentSet(
@@ -546,6 +583,22 @@ export async function reconcileFotomaxOperationalData(
     ),
     'Missing fulfillment provider "manual_manual"',
   )
+  for (const desiredLocation of desiredLocations) {
+    const location = requiredRecord(
+      locationsByName.get(desiredLocation.name),
+      `Missing stock location ${desiredLocation.name}`,
+    )
+    if (
+      !location.fulfillment_providers?.some(
+        (provider) => provider.id === manualProvider.id,
+      )
+    ) {
+      await operations.linkFulfillmentProviderToStockLocation(
+        location.id,
+        manualProvider.id,
+      )
+    }
+  }
   const deliveryZone = requiredRecord(
     sharedDeliverySet.service_zones?.find(
       (zone) => zone.name === "Fotomax Hong Kong Delivery Zone",
@@ -835,8 +888,7 @@ interface BranchCapabilityService {
     data: BranchCapabilityInput[],
   ): Promise<OperationalRecord[]>
   updateBranchCapabilities(
-    id: string,
-    data: BranchCapabilityInput,
+    data: BranchCapabilityInput & { id: string },
   ): Promise<OperationalRecord>
 }
 
@@ -874,6 +926,7 @@ export function createMedusaOperationalOperations(
           "address.country_code",
           "sales_channels.id",
           "fulfillment_sets.id",
+          "fulfillment_providers.id",
         ],
         { name: [...names] },
       )
@@ -894,6 +947,7 @@ export function createMedusaOperationalOperations(
           "address.country_code",
           "sales_channels.id",
           "fulfillment_sets.id",
+          "fulfillment_providers.id",
         ],
         { name: locations.map((location) => location.name) },
       )
@@ -912,17 +966,20 @@ export function createMedusaOperationalOperations(
         },
       })
     },
+    async linkFulfillmentProviderToStockLocation(locationId, providerId) {
+      const links: LinkDefinition[] = [
+        {
+          [Modules.STOCK_LOCATION]: { stock_location_id: locationId },
+          [Modules.FULFILLMENT]: { fulfillment_provider_id: providerId },
+        },
+      ]
+      await createLinksWorkflow(container).run({ input: links })
+    },
     listFulfillmentSets(names) {
       return listReferenceRecords(
         container,
         "fulfillment_set",
-        [
-          "id",
-          "name",
-          "type",
-          "*service_zones",
-          "*service_zones.geo_zones",
-        ],
+        [...FULFILLMENT_SET_QUERY_FIELDS],
         { name: [...names] },
       )
     },
@@ -936,13 +993,7 @@ export function createMedusaOperationalOperations(
       const records = await listReferenceRecords(
         container,
         "fulfillment_set",
-        [
-          "id",
-          "name",
-          "type",
-          "*service_zones",
-          "*service_zones.geo_zones",
-        ],
+        [...FULFILLMENT_SET_QUERY_FIELDS],
         { name: data.name },
       )
       return requiredRecord(
@@ -1183,7 +1234,9 @@ export function createMedusaOperationalOperations(
       return branchCapabilityService.createBranchCapabilities(capabilities)
     },
     async updateBranchCapability(id, data) {
-      await branchCapabilityService.updateBranchCapabilities(id, data)
+      await branchCapabilityService.updateBranchCapabilities(
+        buildBranchCapabilityUpdateInput(id, data),
+      )
     },
     async listBranchCapabilityLinks(locationIds, capabilityIds) {
       const queries: Array<Promise<OperationalRecord[]>> = []
@@ -1208,9 +1261,7 @@ export function createMedusaOperationalOperations(
         )
       }
       const records = (await Promise.all(queries)).flat()
-      return [
-        ...uniqueRecordsByKey(records, (record) => record.id).values(),
-      ]
+      return dedupeBranchCapabilityLinkRecords(records)
     },
     async dismissStockLocationBranchCapability(
       locationId,
