@@ -14,7 +14,11 @@
     "check": "npm run typecheck && npm run test && npm run build",
     "dev": "npm run dev --workspace @fotomax/storefront",
     "dev:medusa": "npm run dev --workspace @fotomax/medusa",
-    "seed:medusa": "npm run seed --workspace @fotomax/medusa"
+    "seed:medusa": "npm run seed --workspace @fotomax/medusa",
+    "infra:up": "docker compose up -d --wait postgres redis",
+    "infra:down": "docker compose down",
+    "db:migrate": "npm run db:migrate --workspace @fotomax/medusa",
+    "setup:local": "npm run infra:up && npm run db:migrate && npm run seed:medusa"
   },
   "engines": {
     "node": ">=20"
