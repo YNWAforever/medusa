@@ -90,6 +90,25 @@ describe("Fotomax Medusa seed workflows", () => {
     ])
   })
 
+  it("enables inventory management only for retail variants", () => {
+    const productInputs = buildFotomaxProductInputs(collectionIds())
+
+    expect(
+      Object.fromEntries(
+        productInputs.map((product) => [
+          product.handle,
+          product.variants?.map((variant) => variant.manage_inventory),
+        ]),
+      ),
+    ).toEqual({
+      "classic-4r-photo-print": [false, false],
+      "premium-layflat-photobook": [false, false],
+      "photo-mug-gift": [false, false],
+      "instax-mini-film-pack": [true, true],
+      "desktop-acrylic-photo-block": [false, false],
+    })
+  })
+
   it("keeps every shared price in Medusa major units for every generated variant", () => {
     const productInputs = buildFotomaxProductInputs(collectionIds())
 

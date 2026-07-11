@@ -26,7 +26,10 @@ import type { ExecArgs, Logger, WorkflowTypes } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { categories, localize, products, serviceEntries } from "@fotomax/shared"
 import { reconcileByKey } from "./reconcile"
-
+import {
+  createMedusaOperationalOperations,
+  reconcileFotomaxOperationalData,
+} from "./seed-operational"
 export interface FotomaxSeedOperations {
   createRegions(
     input: WorkflowTypes.RegionWorkflow.CreateRegionsWorkflowInput,
@@ -120,7 +123,7 @@ export function buildFotomaxProductInputs(
       variants: variantOptions.map((optionValues, index) => ({
         title: Object.values(optionValues).join(" / "),
         sku: `FOTOMAX-${product.handle.toUpperCase()}-${index + 1}`,
-        manage_inventory: false,
+        manage_inventory: product.commerceMode === "retail",
         options: optionValues,
         prices: [
           {
@@ -179,7 +182,10 @@ export default async function seedFotomax({ container }: ExecArgs) {
   await reconcileFotomaxReferenceData(
     createMedusaReconcileOperations(container),
   )
-  logger.info("Reconciled Fotomax Medusa reference data")
+  await reconcileFotomaxOperationalData(
+    createMedusaOperationalOperations(container),
+  )
+  logger.info("Reconciled Fotomax Medusa reference and operational data")
   logger.info(
     `Deferred ${serviceEntries.length} next-phase service entries without a Medusa model`,
   )
