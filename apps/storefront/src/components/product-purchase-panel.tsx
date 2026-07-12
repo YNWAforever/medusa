@@ -15,9 +15,9 @@ export type BranchAvailabilityState =
   | { status: "error" }
   | { status: "ready"; branches: BranchView[] }
 
-function optionId(name: string): string {
+function optionId(name: string, index: number): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-  return "purchase-option-" + (slug || "option")
+  return "purchase-option-" + (slug || "option") + "-" + (index + 1)
 }
 
 function optionGroups(product: CatalogProduct): Array<{ name: string; values: string[] }> {
@@ -48,9 +48,17 @@ export function selectVariantForOption(
     Array.from(selections).every(([name, value]) =>
       variant.options.some((option) => option.name === name && option.value === value),
     ),
-  ) ?? product.variants.find((variant) =>
-    variant.options.some((option) => option.name === optionName && option.value === optionValue),
   ) ?? current
+}
+
+export function isOptionValueAvailable(
+  product: CatalogProduct,
+  currentVariantId: string,
+  optionName: string,
+  optionValue: string,
+): boolean {
+  return selectVariantForOption(product, currentVariantId, optionName, optionValue).options
+    .some((option) => option.name === optionName && option.value === optionValue)
 }
 
 export function BranchAvailability({
@@ -129,6 +137,11 @@ export function ProductPurchasePanel({
   const groups = useMemo(() => optionGroups(product), [product])
   const cart = useOptionalCart()
   const cartId = cart?.cart.id ?? null
+  const cartSignature = cart?.cart.items
+    .map((item) => item.id + ":" + item.quantity)
+    .sort()
+    .join("|") ?? ""
+  const refreshCart = cart?.refresh
   const [branchState, setBranchState] = useState<BranchAvailabilityState>(
     cartId && product.commerceMode === "retail" ? { status: "loading" } : { status: "idle" },
   )
@@ -141,29 +154,41 @@ export function ProductPurchasePanel({
 
     const controller = new AbortController()
     setBranchState({ status: "loading" })
-    void fetch(
-      `/api/branches?cartId=${encodeURIComponent(cartId)}&locale=${encodeURIComponent(locale)}`,
-      { credentials: "same-origin", signal: controller.signal },
-    ).then(async (response) => {
-      const body: unknown = await response.json()
-      if (
-        !response.ok
-        || typeof body !== "object"
-        || body === null
-        || !Reflect.has(body, "branches")
-        || !Array.isArray(Reflect.get(body, "branches"))
-      ) {
-        throw new Error("branch_unavailable")
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/branches?cartId=${encodeURIComponent(cartId)}&locale=${encodeURIComponent(locale)}`,
+          { credentials: "same-origin", signal: controller.signal },
+        )
+        if (response.status === 410) {
+          setBranchState({ status: "idle" })
+          await refreshCart?.()
+          return
+        }
+
+        const body: unknown = await response.json()
+        if (
+          !response.ok
+          || typeof body !== "object"
+          || body === null
+          || !Reflect.has(body, "branches")
+          || !Array.isArray(Reflect.get(body, "branches"))
+        ) {
+          throw new Error("branch_unavailable")
+        }
+        setBranchState({
+          status: "ready",
+          branches: Reflect.get(body, "branches") as BranchView[],
+        })
+      } catch (error: unknown) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setBranchState({ status: "error" })
+        }
       }
-      setBranchState({ status: "ready", branches: Reflect.get(body, "branches") as BranchView[] })
-    }).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        setBranchState({ status: "error" })
-      }
-    })
+    })()
 
     return () => controller.abort()
-  }, [cartId, locale, product.commerceMode])
+  }, [cartId, cartSignature, locale, product.commerceMode, refreshCart])
 
   if (!selectedVariant) {
     return <p className="availability-note">{locale === "zh-HK" ? "暫無產品選項" : "No product options available"}</p>
@@ -176,8 +201,8 @@ export function ProductPurchasePanel({
       </h2>
       {groups.length > 0 ? (
         <div className="purchase-options">
-          {groups.map(({ name, values }) => {
-            const id = optionId(name)
+          {groups.map(({ name, values }, index) => {
+            const id = optionId(name, index)
             const value = selectedVariant.options.find((option) => option.name === name)?.value
               ?? values[0]
             return (
@@ -198,7 +223,13 @@ export function ProductPurchasePanel({
                   }}
                 >
                   {values.map((optionValue) => (
-                    <option key={optionValue} value={optionValue}>{optionValue}</option>
+                    <option
+                      disabled={!isOptionValueAvailable(product, selectedVariant.id, name, optionValue)}
+                      key={optionValue}
+                      value={optionValue}
+                    >
+                      {optionValue}
+                    </option>
                   ))}
                 </select>
               </div>

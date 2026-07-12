@@ -68,6 +68,12 @@ function rawBranch(value: unknown): RawBranch {
     return invalidResponse()
   }
   if (
+    (source.compatible === true && reasonCode !== null)
+    || (source.compatible === false && reasonCode === null)
+  ) {
+    return invalidResponse()
+  }
+  if (
     typeof source.compatible !== "boolean"
     || typeof source.leadTimeBusinessDays !== "number"
     || !Number.isInteger(source.leadTimeBusinessDays)

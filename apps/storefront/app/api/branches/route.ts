@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const client = createBranchStoreClient(await createStoreSdk())
     return NextResponse.json({
       branches: await getBranchAvailability(cartId, locale, client),
-    })
+    }, { headers: { "cache-control": "no-store" } })
   } catch (error) {
     if (errorStatus(error) === 404) {
       const response = NextResponse.json(

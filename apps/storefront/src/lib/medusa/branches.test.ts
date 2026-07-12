@@ -40,6 +40,8 @@ describe("storefront branch availability adapter", () => {
     [{ branches: null }],
     [{ branches: [{ ...rawBranches[0], compatible: "yes" }] }],
     [{ branches: [{ ...rawBranches[0], name: { en: "Only English" } }] }],
+    [{ branches: [{ ...rawBranches[0], compatible: true, reasonCode: "retail_out_of_stock" }] }],
+    [{ branches: [{ ...rawBranches[0], compatible: false, reasonCode: null }] }],
   ])("rejects malformed branch payloads %#", async (payload) => {
     await expect(getBranchAvailability("cart_123", "en", client(payload))).rejects.toThrow("Invalid Medusa branch response")
   })

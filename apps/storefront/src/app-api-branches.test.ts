@@ -32,6 +32,7 @@ describe("branch availability BFF", () => {
   it("projects locale for the cookie-scoped cart", async () => {
     const response = await GET(request("cartId=cart_123&locale=zh-HK"))
     expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("no-store")
     await expect(response.json()).resolves.toEqual({ branches: [] })
     expect(getBranchAvailability).toHaveBeenCalledWith("cart_123", "zh-HK", expect.objectContaining({ fetch: expect.any(Function) }))
   })

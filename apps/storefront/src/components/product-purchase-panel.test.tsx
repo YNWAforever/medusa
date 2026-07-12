@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import type { BranchView } from "../lib/medusa/branches"
 import type { CatalogProduct } from "../lib/medusa/contracts"
 import { CartProvider } from "./cart-provider"
-import { BranchAvailability, ProductPurchasePanel, selectVariantForOption } from "./product-purchase-panel"
+import { BranchAvailability, ProductPurchasePanel, isOptionValueAvailable, selectVariantForOption } from "./product-purchase-panel"
 
 const retailProduct: CatalogProduct = {
   id: "prod_film", handle: "instax-mini-film-pack", title: "Instax Mini Film Pack",
@@ -34,13 +34,42 @@ describe("retail product purchase panel", () => {
       <CartProvider><ProductPurchasePanel product={retailProduct} locale="en" photoPrintEnabled={false} /></CartProvider>,
     )
     const source = readFileSync(new URL("./add-to-cart-button.tsx", import.meta.url), "utf8")
-    expect(markup).toContain('<label for="purchase-option-pack">Pack</label>')
-    expect(markup).toContain('<select id="purchase-option-pack"')
+    expect(markup).toContain('<label for="purchase-option-pack-1">Pack</label>')
+    expect(markup).toContain('<select id="purchase-option-pack-1"')
     expect(markup).toContain("10 shots")
     expect(markup).toContain("20 shots")
     expect(markup).toContain("HK$78.00")
     expect(markup).toContain('type="button"')
     expect(source.match(/addVariant\(variant\.id, 1\)/g)).toHaveLength(1)
+  })
+
+  it("preserves other selections and disables impossible option combinations", () => {
+    const product: CatalogProduct = {
+      ...retailProduct,
+      variants: [
+        { ...retailProduct.variants[0], id: "red-small", options: [{ name: "Color", value: "Red" }, { name: "Size", value: "Small" }] },
+        { ...retailProduct.variants[0], id: "blue-large", options: [{ name: "Color", value: "Blue" }, { name: "Size", value: "Large" }] },
+      ],
+    }
+    expect(selectVariantForOption(product, "red-small", "Size", "Large").id).toBe("red-small")
+    expect(isOptionValueAvailable(product, "red-small", "Size", "Large")).toBe(false)
+  })
+
+  it("generates unique label targets for multiple zh-HK option names", () => {
+    const product: CatalogProduct = {
+      ...retailProduct,
+      variants: [{ ...retailProduct.variants[0], options: [{ name: "顏色", value: "紅色" }, { name: "尺寸", value: "細" }] }],
+    }
+    const markup = renderToStaticMarkup(<ProductPurchasePanel product={product} locale="zh-HK" photoPrintEnabled={false} />)
+    expect(markup).toContain('for="purchase-option-option-1"')
+    expect(markup).toContain('for="purchase-option-option-2"')
+  })
+
+  it("refetches branches for cart content changes and recovers an expired branch cart", () => {
+    const source = readFileSync(new URL("./product-purchase-panel.tsx", import.meta.url), "utf8")
+    expect(source).toContain("cartSignature")
+    expect(source).toContain("response.status === 410")
+    expect(source).toContain("refreshCart")
   })
 
   it("disables an unavailable selected variant without silently choosing another", () => {
