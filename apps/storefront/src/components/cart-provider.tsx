@@ -1,67 +1,90 @@
-"use client"
+﻿"use client"
 
-import React, {
-  createContext,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react"
-import type { CatalogProduct } from "../lib/medusa/contracts"
-import { addCartItem, type CartItem } from "../lib/cart-state"
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import type { CartLineView, CartView } from "../lib/medusa/contracts"
 
 interface CartContextValue {
-  items: CartItem[]
+  cart: CartView
+  items: CartLineView[]
   isDrawerOpen: boolean
-  addItem: (product: CatalogProduct) => void
-  clearCart: () => void
+  isLoading: boolean
+  mutationError: string | null
+  refresh: () => Promise<void>
+  addVariant: (variantId: string, quantity: number) => Promise<void>
+  updateLine: (lineId: string, quantity: number) => Promise<void>
+  removeLine: (lineId: string) => Promise<void>
+  clearCart: () => Promise<void>
   openCart: () => void
   closeCart: () => void
 }
 
+const emptyCart: CartView = {
+  id: null, currencyCode: "hkd", items: [], itemCount: 0,
+  subtotal: { amount: 0, currencyCode: "hkd" },
+  shippingTotal: { amount: 0, currencyCode: "hkd" },
+  taxTotal: { amount: 0, currencyCode: "hkd" },
+  total: { amount: 0, currencyCode: "hkd" }, email: null,
+}
+
 const CartContext = createContext<CartContextValue | null>(null)
 
-export function CartProvider({
-  children,
-  initialItems = [],
-}: {
-  children: ReactNode
-  initialItems?: CartItem[]
-}) {
-  const [items, setItems] = useState<CartItem[]>(initialItems)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(initialItems.length > 0)
+async function cartRequest(path: string, init?: RequestInit): Promise<CartView> {
+  const response = await fetch(path, { ...init, credentials: "same-origin", headers: { "content-type": "application/json", ...init?.headers } })
+  const body: { cart?: CartView; error?: { code?: string } } = await response.json()
+  if (!response.ok || !body.cart) throw new Error(body.error?.code ?? "cart_unavailable")
+  return body.cart
+}
+
+export function CartProvider({ children, initialCart = emptyCart }: { children: ReactNode; initialCart?: CartView }) {
+  const [cart, setCart] = useState<CartView>(initialCart)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(initialCart.items.length > 0)
+  const [isLoading, setIsLoading] = useState(true)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const [isMutating, setIsMutating] = useState(false)
+  const mutationLock = useRef(false)
+
+  const refresh = useCallback(async () => {
+    setIsLoading(true)
+    try { setCart(await cartRequest("/api/cart")); setMutationError(null) }
+    catch (error) { setMutationError(error instanceof Error ? error.message : "cart_unavailable") }
+    finally { setIsLoading(false) }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const mutate = useCallback(async (path: string, init: RequestInit) => {
+    if (isMutating) return
+    setIsMutating(true)
+    try { setCart(await cartRequest(path, init)); setMutationError(null) }
+    catch (error) { setMutationError(error instanceof Error ? error.message : "cart_unavailable") }
+    finally { mutationLock.current = false; setIsMutating(false) }
+  }, [isMutating])
 
   const value = useMemo<CartContextValue>(() => ({
-    items,
-    isDrawerOpen,
-    addItem(product) {
-      setItems((current) => addCartItem(current, product))
+    cart, items: cart.items, isDrawerOpen, isLoading, mutationError, refresh,
+    async addVariant(variantId, quantity) { await mutate("/api/cart/items", { method: "POST", body: JSON.stringify({ variantId, quantity }) }) },
+    async updateLine(lineId, quantity) { await mutate("/api/cart/items/" + encodeURIComponent(lineId), { method: "PATCH", body: JSON.stringify({ quantity }) }) },
+    async removeLine(lineId) { await mutate("/api/cart/items/" + encodeURIComponent(lineId), { method: "DELETE" }) },
+    async clearCart() {
+      if (isMutating) return
+      setIsMutating(true)
+      try {
+        for (const item of [...cart.items]) setCart(await cartRequest("/api/cart/items/" + encodeURIComponent(item.id), { method: "DELETE" }))
+        setMutationError(null)
+      } catch (error) { setMutationError(error instanceof Error ? error.message : "cart_unavailable") }
+      finally { mutationLock.current = false; setIsMutating(false) }
     },
-    clearCart() {
-      setItems([])
-      setIsDrawerOpen(false)
-    },
-    openCart() {
-      setIsDrawerOpen(true)
-    },
-    closeCart() {
-      setIsDrawerOpen(false)
-    },
-  }), [isDrawerOpen, items])
+    openCart() { setIsDrawerOpen(true) },
+    closeCart() { setIsDrawerOpen(false) },
+  }), [cart, isDrawerOpen, isLoading, isMutating, mutate, mutationError, refresh])
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }
 
 export function useCart() {
   const context = useContext(CartContext)
-
-  if (!context) {
-    throw new Error("useCart must be used inside CartProvider")
-  }
-
+  if (!context) throw new Error("useCart must be used inside CartProvider")
   return context
 }
 
-export function useOptionalCart() {
-  return useContext(CartContext)
-}
+export function useOptionalCart() { return useContext(CartContext) }

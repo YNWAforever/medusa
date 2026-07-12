@@ -1,18 +1,15 @@
-import { describe, expect, it } from "vitest"
-import type { CatalogProduct } from "./medusa/contracts"
-import { addCartItem, getCartSubtotal, type CartItem } from "./cart-state"
+﻿import { describe, expect, it } from "vitest"
+import type { CartLineView, CartView } from "./medusa/contracts"
+import { cartItemCount, getCartSubtotal, groupCartLines } from "./cart-state"
 
-const firstProduct: CatalogProduct = { id: "prod_print", handle: "classic-4r-photo-print", title: "Classic 4R Photo Print", description: "Prints", thumbnail: null, collectionHandle: "photo-print", badge: "Popular", commerceMode: "retail", variants: [{ id: "variant_print", title: "Default", sku: "PRINT", options: [], price: { amount: 280, currencyCode: "hkd" }, inventory: { managed: true, available: true, quantity: 10 } }] }
-const secondProduct: CatalogProduct = { ...firstProduct, id: "prod_film", handle: "instax-mini-film", title: "Instax Mini Film", variants: [{ ...firstProduct.variants[0], id: "variant_film", price: { amount: 7800, currencyCode: "hkd" } }] }
+const retail: CartLineView = { id: "line_retail", kind: "retail", variantId: "variant_retail", title: "Film", thumbnail: null, quantity: 2, unitPrice: { amount: 7800, currencyCode: "hkd" }, subtotal: { amount: 15600, currencyCode: "hkd" }, photoJobVersionId: null, photoCount: null }
+const print: CartLineView = { ...retail, id: "line_print", kind: "photo_print", variantId: "variant_print", quantity: 1, subtotal: { amount: 7800, currencyCode: "hkd" } }
 
 describe("cart state", () => {
-  it("adds a new DTO product as a single cart line", () => { expect(addCartItem([], firstProduct)).toEqual([{ product: firstProduct, quantity: 1 }]) })
-  it("increments an existing line without mutating the input", () => { const existingLine: CartItem = { product: firstProduct, quantity: 1 }; const items: CartItem[] = [existingLine]; const nextItems = addCartItem(items, firstProduct); expect(nextItems).not.toBe(items); expect(nextItems[0]).not.toBe(existingLine); expect(nextItems).toEqual([{ product: firstProduct, quantity: 2 }]); expect(items).toEqual([{ product: firstProduct, quantity: 1 }]) })
-  it("calculates a quantity-aware subtotal from variant prices in cents", () => { const items: CartItem[] = [{ product: firstProduct, quantity: 2 }, { product: secondProduct, quantity: 3 }]; expect(getCartSubtotal(items)).toBe(280 * 2 + 7800 * 3) })
-  it("treats a variantless cart line as zero instead of producing NaN", () => {
-    const variantlessProduct: CatalogProduct = { ...firstProduct, variants: [] }
-
-    expect(getCartSubtotal([{ product: variantlessProduct, quantity: 2 }])).toBe(0)
+  it("calculates subtotal from CartLineView values", () => expect(getCartSubtotal([retail, print])).toBe(23400))
+  it("groups DTO lines without importing catalog products", () => expect(groupCartLines([retail, print])).toEqual({ retail: [retail], photo_print: [print] }))
+  it("counts quantities from the canonical CartView", () => {
+    const cart: CartView = { id: "cart_123", currencyCode: "hkd", items: [retail, print], itemCount: 3, subtotal: { amount: 23400, currencyCode: "hkd" }, shippingTotal: { amount: 0, currencyCode: "hkd" }, taxTotal: { amount: 0, currencyCode: "hkd" }, total: { amount: 23400, currencyCode: "hkd" }, email: null }
+    expect(cartItemCount(cart)).toBe(3)
   })
-
 })

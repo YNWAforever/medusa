@@ -1,4 +1,4 @@
-import Link from "next/link"
+﻿import Link from "next/link"
 import React from "react"
 import { t, type Locale } from "@fotomax/shared"
 import { assertLocale, localeHref } from "../../../src/lib/locales"

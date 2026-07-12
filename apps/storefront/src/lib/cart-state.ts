@@ -1,27 +1,18 @@
-import type { CatalogProduct } from "./medusa/contracts"
+﻿import type { CartLineView, CartView } from "./medusa/contracts"
 
-export interface CartItem {
-  product: CatalogProduct
-  quantity: number
+export type CartItem = CartLineView
+
+export function getCartSubtotal(items: readonly CartLineView[]): number {
+  return items.reduce((total, item) => total + item.subtotal.amount, 0)
 }
 
-export function addCartItem(items: CartItem[], product: CatalogProduct): CartItem[] {
-  const existing = items.find((item) => item.product.handle === product.handle)
-
-  return existing
-    ? items.map((item) =>
-        item.product.handle === product.handle
-          ? { ...item, quantity: item.quantity + 1 }
-          : item,
-      )
-    : [...items, { product, quantity: 1 }]
+export function groupCartLines(items: readonly CartLineView[]): Record<CartLineView["kind"], CartLineView[]> {
+  return {
+    retail: items.filter((item) => item.kind === "retail"),
+    photo_print: items.filter((item) => item.kind === "photo_print"),
+  }
 }
 
-export function getCartSubtotal(items: CartItem[]): number {
-  return items.reduce((sum, item) => {
-    const variant = item.product.variants.find((candidate) => candidate.inventory.available)
-      ?? item.product.variants[0]
-
-    return sum + (variant?.price.amount ?? 0) * item.quantity
-  }, 0)
+export function cartItemCount(cart: CartView): number {
+  return cart.items.reduce((total, item) => total + item.quantity, 0)
 }

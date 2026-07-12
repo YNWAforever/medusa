@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import Link from "next/link"
 import { ChevronDown, ShoppingBag, Trash2 } from "lucide-react"
@@ -13,7 +13,7 @@ import { useCart } from "./cart-provider"
 type FocusTarget = "reopen" | "collapse" | "clear-trigger" | "header-cart" | null
 
 export function CartDrawer({ locale }: { locale: Locale }) {
-  const { items, isDrawerOpen, clearCart, closeCart, openCart } = useCart()
+  const { items, isDrawerOpen, clearCart, closeCart, openCart, isLoading, mutationError } = useCart()
   const [isConfirmingClear, setIsConfirmingClear] = useState(false)
   const [focusTarget, setFocusTarget] = useState<FocusTarget>(null)
   const clearTriggerRef = useRef<HTMLButtonElement>(null)
@@ -143,12 +143,13 @@ export function CartDrawer({ locale }: { locale: Locale }) {
           </div>
         </div>
       ) : null}
+      <p className="cart-command-status" role="status" aria-live="polite">{isLoading ? (locale === "zh-HK" ? "正在載入購物車" : "Loading cart") : mutationError ? (locale === "zh-HK" ? "未能更新購物車，請重試。" : "Unable to update your cart. Please try again.") : ""}</p>
       <div className="cart-lines">
         {items.map((item) => (
-          <div className="cart-line" key={item.product.handle}>
-            <span>{item.product.title}</span>
+          <div className="cart-line" key={item.id}>
+            <span>{item.title}</span>
             <strong className="cart-line-quantity">
-              {item.quantity} x {formatCatalogMoney((item.product.variants.find((variant) => variant.inventory.available) ?? item.product.variants[0])?.price, locale)}
+              {item.quantity} x {formatCatalogMoney(item.unitPrice, locale)}
             </strong>
           </div>
         ))}

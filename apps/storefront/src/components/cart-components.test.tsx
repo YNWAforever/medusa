@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs"
+﻿import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { t } from "@fotomax/shared"
 import type { ServiceEntry } from "../content/services"
 import { serviceEntries } from "../content/services"
-import type { CatalogCategory, CatalogProduct, Locale } from "../lib/medusa/contracts"
+import type { CartView, CatalogCategory, CatalogProduct, Locale } from "../lib/medusa/contracts"
 import { formatCatalogMoney, getProductView } from "../lib/catalog-filters"
 import RootNotFound from "../../app/global-not-found"
 import CartPage from "../../app/[locale]/cart/page"
@@ -20,9 +20,10 @@ const product: CatalogProduct = { id: "prod_print", handle: "classic-4r-photo-pr
 const category: CatalogCategory = { id: "pcol_print", handle: "photo-print", title: "Photo Print", summary: "Fast prints.", products: [product] }
 const productView = getProductView([category], product.handle)!
 const service: ServiceEntry = serviceEntries[0]!
+const cartFor = (quantity: number): CartView => ({ id: quantity === 0 ? null : "cart_123", currencyCode: "hkd", items: quantity === 0 ? [] : [{ id: "line_123", kind: "retail", variantId: product.variants[0]!.id, title: product.title, thumbnail: product.thumbnail, quantity, unitPrice: product.variants[0]!.price, subtotal: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, photoJobVersionId: null, photoCount: null }], itemCount: quantity, subtotal: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, shippingTotal: { amount: 0, currencyCode: "hkd" }, taxTotal: { amount: 0, currencyCode: "hkd" }, total: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, email: null })
 function renderDrawer(locale: Locale, quantity = 0) {
   return renderToStaticMarkup(
-    <CartProvider initialItems={quantity === 0 ? [] : [{ product, quantity }]}>
+    <CartProvider initialCart={cartFor(quantity)}>
       <CartDrawer locale={locale} />
     </CartProvider>,
   )
@@ -30,7 +31,7 @@ function renderDrawer(locale: Locale, quantity = 0) {
 
 function renderAddButton(locale: Locale, quantity = 0) {
   return renderToStaticMarkup(
-    <CartProvider initialItems={quantity === 0 ? [] : [{ product, quantity }]}>
+    <CartProvider initialCart={cartFor(quantity)}>
       <AddToCartButton product={product} locale={locale} />
     </CartProvider>,
   )
@@ -126,9 +127,8 @@ describe("Fotomax cart and service composition", () => {
 
     expect(providerSource).toContain("isDrawerOpen")
     expect(providerSource).toContain("setIsDrawerOpen(true)")
-    const addItemBody = providerSource.match(/addItem\(product\)\s*\{([\s\S]*?)\},\s*clearCart/)?.[1] ?? ""
-    expect(addItemBody).toContain("setItems")
-    expect(addItemBody).not.toContain("setIsDrawerOpen")
+    expect(providerSource).toContain("async addVariant")
+    expect(providerSource).toContain('await mutate("/api/cart/items"')
     expect(providerSource).toContain("openCart")
     expect(providerSource).toContain("closeCart")
 
