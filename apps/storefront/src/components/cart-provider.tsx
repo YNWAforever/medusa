@@ -10,6 +10,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react"
+import { createCartRefreshGuard } from "../lib/cart-state"
 import type { CartLineView, CartView } from "../lib/medusa/contracts"
 
 interface CartContextValue {
@@ -42,6 +43,12 @@ const emptyCart: CartView = {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
+class CartRequestError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}
+
 async function cartRequest(path: string, init?: RequestInit): Promise<CartView> {
   const response = await fetch(path, {
     ...init,
@@ -54,7 +61,7 @@ async function cartRequest(path: string, init?: RequestInit): Promise<CartView> 
   const body: { cart?: CartView; error?: { code?: string } } = await response.json()
 
   if (!response.ok || !body.cart) {
-    throw new Error(body.error?.code ?? "cart_unavailable")
+    throw new CartRequestError(body.error?.code ?? "cart_unavailable")
   }
 
   return body.cart
@@ -73,18 +80,26 @@ export function CartProvider({
   const [isMutating, setIsMutating] = useState(false)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const mutationLock = useRef(false)
+  const cartVersion = useRef(0)
+  const refreshGuard = useMemo(() => createCartRefreshGuard(cartVersion), [])
 
   const refresh = useCallback(async () => {
+    const refreshVersion = refreshGuard.capture()
     setIsLoading(true)
     try {
-      setCart(await cartRequest("/api/cart"))
-      setMutationError(null)
+      const nextCart = await cartRequest("/api/cart")
+      if (refreshGuard.isCurrent(refreshVersion)) {
+        setCart(nextCart)
+        setMutationError(null)
+      }
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : "cart_unavailable")
+      if (refreshGuard.isCurrent(refreshVersion)) {
+        setMutationError(error instanceof Error ? error.message : "cart_unavailable")
+      }
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [refreshGuard])
 
   useEffect(() => {
     void refresh()
@@ -96,17 +111,33 @@ export function CartProvider({
     }
 
     mutationLock.current = true
+    refreshGuard.invalidate()
     setIsMutating(true)
     try {
       setCart(await cartRequest(path, init))
       setMutationError(null)
     } catch (error) {
+      if (error instanceof CartRequestError && error.code === "cart_expired") {
+        setCart(emptyCart)
+        if (path === "/api/cart/items" && init.method === "POST") {
+          try {
+            setCart(await cartRequest(path, init))
+            setMutationError(null)
+            return
+          } catch (retryError) {
+            setMutationError(
+              retryError instanceof Error ? retryError.message : "cart_unavailable",
+            )
+            return
+          }
+        }
+      }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")
     } finally {
       mutationLock.current = false
       setIsMutating(false)
     }
-  }, [])
+  }, [refreshGuard])
 
   const clearCart = useCallback(async () => {
     if (mutationLock.current) {
@@ -114,6 +145,7 @@ export function CartProvider({
     }
 
     mutationLock.current = true
+    refreshGuard.invalidate()
     setIsMutating(true)
     try {
       let nextCart = cart
@@ -126,12 +158,15 @@ export function CartProvider({
       }
       setMutationError(null)
     } catch (error) {
+      if (error instanceof CartRequestError && error.code === "cart_expired") {
+        setCart(emptyCart)
+      }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")
     } finally {
       mutationLock.current = false
       setIsMutating(false)
     }
-  }, [cart])
+  }, [cart, refreshGuard])
 
   const value = useMemo<CartContextValue>(() => ({
     cart,

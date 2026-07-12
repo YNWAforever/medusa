@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { CART_COOKIE } from "./lib/medusa/session"
+import { CartError } from "./lib/medusa/cart"
 
 const cart = {
   id: "cart_123",
@@ -172,6 +173,18 @@ describe("cart BFF", () => {
     }))
     expect(response.status).toBe(502)
     await expect(response.json()).resolves.toEqual({ error: { code: "cart_unavailable" } })
+  })
+
+  it("maps missing HK region configuration to service unavailable", async () => {
+    createWithLine.mockRejectedValueOnce(new CartError("cart_region_unavailable"))
+    const response = await POST(request("/api/cart/items", {
+      method: "POST",
+      body: JSON.stringify({ variantId: "variant_123", quantity: 1 }),
+      headers: { "content-type": "application/json" },
+    }))
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: { code: "cart_region_unavailable" } })
   })
 
   it("adds to an existing cart and maps Medusa conflicts to a recoverable code", async () => {

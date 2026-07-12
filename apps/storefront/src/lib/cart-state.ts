@@ -1,6 +1,20 @@
-﻿import type { CartLineView, CartView } from "./medusa/contracts"
+import type { CartLineView, CartView } from "./medusa/contracts"
 
 export type CartItem = CartLineView
+
+interface VersionRef {
+  current: number
+}
+
+export function createCartRefreshGuard(version: VersionRef = { current: 0 }) {
+  return {
+    capture: () => version.current,
+    invalidate() {
+      version.current += 1
+    },
+    isCurrent: (candidate: number) => candidate === version.current,
+  }
+}
 
 export function getCartSubtotal(items: readonly CartLineView[]): number {
   return items.reduce((total, item) => total + item.subtotal.amount, 0)

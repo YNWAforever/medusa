@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof CartError) {
       return NextResponse.json(
         { error: { code: error.code } },
-        { status: 400 },
+        { status: error.code === "cart_region_unavailable" ? 503 : 400 },
       )
     }
 
