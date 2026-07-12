@@ -1,4 +1,4 @@
-﻿import { readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
@@ -107,6 +107,20 @@ describe("Fotomax cart and service composition", () => {
     expect(detail).not.toContain(locale === "zh-HK" ? "網上訂購即將推出</p>" : "Online ordering coming soon</p>")
   })
 
+  it.each([
+    ["en", "Online ordering unavailable"],
+    ["zh-HK", "暫時未能網上訂購"],
+  ] as const)("localizes unavailable ordering in %s", (locale, label) => {
+    const unavailableProduct: CatalogProduct = { ...product, commerceMode: "photo_print" }
+    const markup = renderToStaticMarkup(
+      <CartProvider initialCart={cartFor(0)}>
+        <AddToCartButton product={unavailableProduct} locale={locale} />
+      </CartProvider>,
+    )
+    expect(markup).toContain("disabled")
+    expect(markup).toContain(">" + label + "</span>")
+  })
+
   it("uses explicit clear confirmation and provider-owned drawer visibility contracts", () => {
     const drawerSource = readFileSync(new URL("./cart-drawer.tsx", import.meta.url), "utf8")
     const providerSource = readFileSync(new URL("./cart-provider.tsx", import.meta.url), "utf8")
@@ -128,6 +142,8 @@ describe("Fotomax cart and service composition", () => {
     expect(providerSource).toContain("isDrawerOpen")
     expect(providerSource).toContain("setIsDrawerOpen(true)")
     expect(providerSource).toContain("async addVariant")
+    expect(providerSource).toContain("if (mutationLock.current)")
+    expect(providerSource).toContain("mutationLock.current = true")
     expect(providerSource).toContain('await mutate("/api/cart/items"')
     expect(providerSource).toContain("openCart")
     expect(providerSource).toContain("closeCart")
@@ -135,6 +151,8 @@ describe("Fotomax cart and service composition", () => {
     expect(addButtonSource).not.toContain("useState")
     expect(addButtonSource).not.toContain("setAdded")
     expect(addButtonSource).toContain("cart?.items.find")
+    expect(addButtonSource).toContain("cart.isMutating")
+    expect(addButtonSource).toContain("未能更新購物車，請重試。")
   })
 
   it("uses render-driven focus restoration for every conditional cart control", () => {
@@ -182,6 +200,11 @@ describe("Fotomax cart and service composition", () => {
       expect(markup).toContain(comingSoon)
     }
 
+    expect(cart).toContain(
+      locale === "zh-HK"
+        ? "購物車內容會在你繼續瀏覽時保留。"
+        : "Your cart stays saved while you continue browsing.",
+    )
     expect(cart).toContain(`href="/${locale}"`)
     expect(cart).toContain(`>${continueShopping}</a>`)
     expect(serviceMarkup).toContain(`href="/${locale}/categories/${service.categoryHandle}"`)

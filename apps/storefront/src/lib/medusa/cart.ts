@@ -1,4 +1,5 @@
-﻿import type Medusa from "@medusajs/js-sdk"
+import "server-only"
+import type Medusa from "@medusajs/js-sdk"
 import type { CartLineView, CartView, MoneyView } from "./contracts"
 
 type StoreCartApi = Pick<
@@ -85,8 +86,14 @@ function projectLine(line: MedusaCartLine): CartLineView {
     quantity: line.quantity,
     unitPrice: projectMoney(line.unit_price),
     subtotal: projectMoney(line.subtotal),
-    photoJobVersionId: null,
-    photoCount: null,
+    photoJobVersionId: typeof line.metadata?.photo_job_version_id === "string"
+      ? line.metadata.photo_job_version_id
+      : null,
+    photoCount: typeof line.metadata?.photo_item_count === "number"
+      && Number.isInteger(line.metadata.photo_item_count)
+      && line.metadata.photo_item_count >= 0
+      ? line.metadata.photo_item_count
+      : null,
   }
 }
 
@@ -136,6 +143,20 @@ function requireQuantity(value: unknown): number {
 
 export function parseQuantityInput(value: unknown): number {
   return requireQuantity(value)
+}
+
+export function parseUpdateCartItemInput(value: unknown): number {
+  if (
+    typeof value !== "object"
+    || value === null
+    || Array.isArray(value)
+    || Object.keys(value).length !== 1
+    || !Object.hasOwn(value, "quantity")
+  ) {
+    throw new CartError("invalid_cart_input")
+  }
+
+  return requireQuantity(Reflect.get(value, "quantity"))
 }
 
 export function parseAddCartItemInput(value: unknown): AddCartItemInput {

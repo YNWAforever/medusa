@@ -1,11 +1,17 @@
-﻿import { describe, expect, it, vi } from "vitest"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it, vi } from "vitest"
 import type Medusa from "@medusajs/js-sdk"
+
+vi.mock("server-only", () => ({}))
+
 import {
   CartError,
   createCartAdapter,
   emptyCartView,
   parseAddCartItemInput,
   parseQuantityInput,
+  parseUpdateCartItemInput,
   projectCart,
 } from "./cart"
 
@@ -53,6 +59,11 @@ function createSdk() {
 }
 
 describe("cart adapter", () => {
+  it("marks the Medusa cart adapter as server-only", async () => {
+    const source = await readFile(fileURLToPath(new URL("./cart.ts", import.meta.url)), "utf8")
+    expect(source).toMatch(/^import "server-only"/)
+  })
+
   it("returns the canonical empty view without creating a Medusa cart", () => {
     expect(emptyCartView()).toEqual({
       id: null,
@@ -79,6 +90,25 @@ describe("cart adapter", () => {
         unitPrice: { amount: 7_800, currencyCode: "hkd" },
         subtotal: { amount: 15_600, currencyCode: "hkd" },
       }],
+    })
+  })
+
+  it("projects photo-print attachment metadata into the canonical line view", () => {
+    const photoCart = {
+      ...rawCart,
+      items: [{
+        ...rawCart.items[0],
+        metadata: {
+          photo_job_version_id: "photo_version_123",
+          photo_item_count: 7,
+        },
+        variant: { product: { metadata: { commerce_mode: "photo_print" } } },
+      }],
+    }
+    expect(projectCart(photoCart).items[0]).toMatchObject({
+      kind: "photo_print",
+      photoJobVersionId: "photo_version_123",
+      photoCount: 7,
     })
   })
 
@@ -136,4 +166,15 @@ describe("cart adapter", () => {
   it.each([0, 1.25, 100, "2", null])("rejects invalid line quantities %#", (quantity) => {
     expect(() => parseQuantityInput(quantity)).toThrow(CartError)
   })
+
+  it("accepts an exact update-line payload", () => {
+    expect(parseUpdateCartItemInput({ quantity: 2 })).toBe(2)
+  })
+
+  it.each([null, [], { quantity: 2, extra: true }, { quantity: "2" }])(
+    "rejects invalid update-line payload %#",
+    (input) => {
+      expect(() => parseUpdateCartItemInput(input)).toThrow(CartError)
+    },
+  )
 })
