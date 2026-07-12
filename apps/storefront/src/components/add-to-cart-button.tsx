@@ -9,16 +9,22 @@ import { useOptionalCart } from "./cart-provider"
 export function AddToCartButton({
   product,
   locale,
+  variantId,
 }: {
   product: CatalogProduct
   locale: Locale
+  variantId?: string
 }) {
   const cart = useOptionalCart()
-  const variant = product.variants.find((candidate) => candidate.inventory.available)
+  const variant = variantId
+    ? product.variants.find((candidate) => candidate.id === variantId)
+    : product.variants.find((candidate) => candidate.inventory.available)
   const quantity = variant
     ? cart?.items.find((item) => item.variantId === variant.id)?.quantity ?? 0
     : 0
-  const unavailable = product.commerceMode !== "retail" || !variant
+  const unavailable = product.commerceMode !== "retail"
+    || !variant
+    || !variant.inventory.available
   const command = quantity === 0
     ? t(locale, "addToCart")
     : locale === "zh-HK" ? "再加一件" : "Add another"

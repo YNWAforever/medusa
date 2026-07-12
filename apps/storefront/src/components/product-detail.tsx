@@ -2,14 +2,9 @@ import { CheckCircle2, Store } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import React from "react"
-import { formatCatalogMoney } from "../lib/catalog-filters"
-import type {
-  CatalogCategory,
-  CatalogProduct,
-  Locale,
-} from "../lib/medusa/contracts"
+import type { CatalogCategory, CatalogProduct, Locale } from "../lib/medusa/contracts"
 import { localeHref } from "../lib/locales"
-import { AddToCartButton } from "./add-to-cart-button"
+import { ProductPurchasePanel } from "./product-purchase-panel"
 
 export function ProductDetail({
   product,
@@ -20,18 +15,6 @@ export function ProductDetail({
   category: CatalogCategory
   locale: Locale
 }) {
-  const selectedVariant = product.variants.find((variant) => variant.inventory.available)
-    ?? product.variants[0]
-  const options = new Map<string, string[]>()
-
-  for (const variant of product.variants) {
-    for (const option of variant.options) {
-      options.set(option.name, [
-        ...new Set([...(options.get(option.name) ?? []), option.value]),
-      ])
-    }
-  }
-
   return (
     <main id="main-content" className="page-shell product-detail">
       <div className="product-gallery">
@@ -51,51 +34,23 @@ export function ProductDetail({
         )}
       </div>
       <section className="product-info">
-        <Link
-          className="text-link"
-          href={localeHref(locale, "/categories/" + category.handle)}
-        >
+        <Link className="text-link" href={localeHref(locale, "/categories/" + category.handle)}>
           {category.title}
         </Link>
         {product.badge ? <span className="badge">{product.badge}</span> : null}
         <h1>{product.title}</h1>
         <p>{product.description}</p>
-        <strong className="price">{formatCatalogMoney(selectedVariant?.price, locale)}</strong>
-        <p className="option-note">
-          {locale === "zh-HK"
-            ? "以下選項只供參考；網上訂購即將推出。"
-            : "Options are shown for reference; online ordering is coming soon."}
-        </p>
-        {options.size > 0 ? (
-          <section className="option-stack" aria-labelledby="product-details-heading">
-            <h2 id="product-details-heading">
-              {locale === "zh-HK" ? "產品資料" : "Product details"}
-            </h2>
-            <dl className="option-list">
-              {Array.from(options).map(([name, values]) => (
-                <div className="option-group" key={name}>
-                  <dt>{name}</dt>
-                  <dd>
-                    <ul className="option-values">
-                      {values.map((value) => <li key={value}>{value}</li>)}
-                    </ul>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ) : null}
-        <p className="availability-note">
-          {selectedVariant?.inventory.available
-            ? <AddToCartButton product={product} locale={locale} />
-            : locale === "zh-HK" ? "缺貨" : "Out of stock"}
-        </p>
+        <ProductPurchasePanel
+          product={product}
+          locale={locale}
+          photoPrintEnabled={process.env.NEXT_PUBLIC_PHOTO_PRINT_ENABLED === "true"}
+        />
         <div className="detail-notes">
           <p>
             <Store size={18} aria-hidden="true" />
             {locale === "zh-HK"
-              ? "門市取貨詳情即將推出。"
-              : "Store pickup details are coming soon."}
+              ? "門市取貨狀況目前使用測試資料。"
+              : "Pickup availability currently uses staging test data."}
           </p>
           <p>
             <CheckCircle2 size={18} aria-hidden="true" />

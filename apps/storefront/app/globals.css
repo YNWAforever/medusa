@@ -671,6 +671,120 @@ p {
   font-weight: 900;
 }
 
+.product-purchase-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.product-purchase-panel h2,
+.branch-availability h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.purchase-options,
+.purchase-option {
+  display: grid;
+  gap: 8px;
+}
+
+.purchase-option label {
+  font-weight: 900;
+}
+
+.purchase-option select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #9ca3af;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0 12px;
+  color: #111827;
+  font: inherit;
+}
+
+.purchase-option select:hover {
+  border-color: #4b5563;
+}
+
+.purchase-option select:focus-visible {
+  outline: 3px solid rgba(193, 18, 31, 0.24);
+  outline-offset: 2px;
+  border-color: var(--color-red-text);
+}
+
+.branch-status {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.branch-status.error {
+  color: var(--color-red-text);
+  font-weight: 800;
+}
+
+.branch-availability {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #d1d5db;
+  padding-top: 16px;
+}
+
+.branch-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.branch-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  border-top: 1px solid #e5e7eb;
+  padding: 14px 0;
+}
+
+.branch-item:first-child {
+  border-top: 0;
+}
+
+.branch-item div,
+.branch-item span {
+  min-width: 0;
+}
+
+.branch-item div {
+  display: grid;
+  gap: 2px;
+}
+
+.branch-item > span:last-child {
+  grid-column: 1 / -1;
+  color: #4b5563;
+}
+
+.staging-label {
+  align-self: start;
+  color: #6b4f00;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.availability {
+  font-weight: 900;
+}
+
+.availability.available {
+  color: #166534;
+}
+
+.availability.unavailable {
+  color: var(--color-red-text);
+}
+
 .detail-notes {
   display: grid;
   gap: 10px;
