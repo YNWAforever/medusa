@@ -126,7 +126,9 @@ describe("Fotomax cart and service composition", () => {
 
     expect(providerSource).toContain("isDrawerOpen")
     expect(providerSource).toContain("setIsDrawerOpen(true)")
-    expect(providerSource).toMatch(/addItem\(product\)\s*\{[\s\S]*?setIsDrawerOpen\(true\)\s*\}/)
+    const addItemBody = providerSource.match(/addItem\(product\)\s*\{([\s\S]*?)\},\s*clearCart/)?.[1] ?? ""
+    expect(addItemBody).toContain("setItems")
+    expect(addItemBody).not.toContain("setIsDrawerOpen")
     expect(providerSource).toContain("openCart")
     expect(providerSource).toContain("closeCart")
 

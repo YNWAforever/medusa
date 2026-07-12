@@ -18,6 +18,32 @@ function renderLocale(locale: Locale) { return { header: renderToStaticMarkup(<S
 describe("Fotomax homepage composition", () => {
   it.each(["en", "zh-HK"] as const)("renders live DTO category and product destinations in %s", (locale) => { const { header, page } = renderLocale(locale); for (const category of categories) { expect(header).toContain(`href="/${locale}/categories/${category.handle}"`); expect(page).toContain(`href="/${locale}/categories/${category.handle}"`) }; for (const category of categories) for (const item of category.products) expect(page).toContain(`href="/${locale}/products/${item.handle}`); expect(page).toContain(`href="/${locale}/services/store-pickup"`); expect(header).toContain(`href="/${locale}/services/store-pickup"`) })
   it("renders accessible page structure and optimized decorative hero media", () => { const { page } = renderLocale("en"); const localeLayout = readFileSync(new URL("../../app/[locale]/layout.tsx", import.meta.url), "utf8"); expect(localeLayout).toContain('className="skip-link" href="#main-content"'); expect(page).toContain('<main id="main-content">'); expect(page.match(/<h1>/g)).toHaveLength(1); expect(page.match(/<h2>/g)).toHaveLength(2); expect(page.match(/<h3>/g)).toHaveLength(4); expect(page).toContain('<link rel="preload" as="image"'); expect(page).toContain('imageSizes="100vw"'); expect(page).toMatch(/<img alt=""[^>]*class="hero-backdrop"[^>]*sizes="100vw"/); expect(page.match(/class="product-card"/g)).toHaveLength(4) })
-  it("keeps customer-facing availability copy independent of catalog fixtures", () => { const english = renderLocale("en").page; expect(english).toContain("Photo life, from prints to gifts in one modern shop."); expect(english).toContain("Coming soon"); expect(english).not.toMatch(/next phase|medusa|implementation/i) })
-  it("defines the reviewed mobile and interaction styling contract", () => { const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8"); const mobileStart = css.indexOf("@media (max-width: 620px)"); const reducedMotionStart = css.indexOf("@media (prefers-reduced-motion: reduce)"); const mobileCss = css.slice(mobileStart, reducedMotionStart); expect(css).toContain("--color-red-text: #b4232f"); expect(mobileCss).toMatch(/\.home-hero,\s*\.hero-content\s*\{[^}]*min-height:\s*auto/s); expect(mobileCss).toMatch(/\.hero-panel\s*\{[^}]*display:\s*none/s); expect(css).toContain(".product-card:hover"); expect(css).not.toMatch(/font-size:\s*clamp\(/) })
+  it("keeps bilingual customer-facing availability copy independent of catalog fixtures", () => {
+    const english = renderLocale("en").page
+    const chinese = renderLocale("zh-HK").page
+
+    expect(english).toContain("Photo life, from prints to gifts in one modern shop.")
+    expect(english).toContain("Coming soon")
+    expect(chinese).toContain("影像生活，由沖印到禮物一站完成。")
+    expect(chinese).toContain("即將推出")
+    expect(`${english}${chinese}`).not.toMatch(/next phase|medusa|implementation/i)
+  })
+
+  it("defines the reviewed mobile and interaction styling contract", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8")
+    const mobileStart = css.indexOf("@media (max-width: 620px)")
+    const reducedMotionStart = css.indexOf("@media (prefers-reduced-motion: reduce)")
+    const mobileCss = css.slice(mobileStart, reducedMotionStart)
+
+    expect(css).toContain("--color-red-text: #b4232f")
+    expect(mobileCss).toMatch(/\.home-hero,\s*\.hero-content\s*\{[^}]*min-height:\s*auto/s)
+    expect(mobileCss).toMatch(/\.hero-panel\s*\{[^}]*display:\s*none/s)
+    expect(mobileCss).toMatch(/\.mega-nav a\s*\{[^}]*min-height:\s*44px[^}]*padding/s)
+    expect(css).toContain(".icon-button:hover")
+    expect(css).toContain(".product-card:hover")
+    expect(css).toContain(".text-link:hover")
+    expect(css).toContain(".service-strip a:hover")
+    expect(css).not.toMatch(/font-size:\s*clamp\(/)
+  })
+
 })
