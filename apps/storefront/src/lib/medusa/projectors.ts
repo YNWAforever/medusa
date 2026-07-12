@@ -67,7 +67,15 @@ function projectMoney(amount: number | null | undefined): MoneyView {
     throw new Error("Medusa calculated_amount must be a non-negative number")
   }
 
-  return { amount: Math.round(amount * 100), currencyCode: "hkd" }
+  const scaledCents = amount * 100
+  const roundedCents = Math.round(scaledCents)
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(scaledCents)) * 4
+
+  if (!Number.isSafeInteger(roundedCents) || Math.abs(scaledCents - roundedCents) > tolerance) {
+    throw new Error("Medusa calculated_amount must be a non-negative number")
+  }
+
+  return { amount: roundedCents, currencyCode: "hkd" }
 }
 
 function projectVariant(variant: MedusaStoreVariant, locale: Locale): CatalogVariant {

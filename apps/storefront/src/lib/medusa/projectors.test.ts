@@ -131,6 +131,36 @@ describe("Medusa catalog projectors", () => {
     },
   )
 
+  it.each([0.001, 78.999])(
+    "rejects a fractional-cent calculated amount of %s",
+    (calculatedAmount) => {
+      expect(() => projectCatalogProduct(
+        {
+          ...product,
+          variants: [{
+            ...product.variants[0],
+            calculated_price: { calculated_amount: calculatedAmount },
+          }],
+        },
+        "en",
+      )).toThrow("Medusa calculated_amount must be a non-negative number")
+    },
+  )
+
+  it("preserves a two-decimal calculated amount despite floating-point noise", () => {
+    const catalogProduct = projectCatalogProduct(
+      {
+        ...product,
+        variants: [{
+          ...product.variants[0],
+          calculated_price: { calculated_amount: 0.29 },
+        }],
+      },
+      "en",
+    )
+
+    expect(catalogProduct.variants[0].price).toEqual({ amount: 29, currencyCode: "hkd" })
+  })
   it("projects managed inventory as unavailable when out of stock and available when backorders are allowed", () => {
     const outOfStock = projectCatalogProduct(
       {
