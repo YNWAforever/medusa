@@ -27,4 +27,21 @@ describe("cart state", () => {
 
     await expect(applied).resolves.toBeNull()
   })
+
+  it("blocks a refresh that is requested while a mutation is active", async () => {
+    const guard = createCartRefreshGuard()
+    let resolveMutation: () => void = () => undefined
+    const mutation = new Promise<void>((resolve) => {
+      resolveMutation = resolve
+    })
+
+    guard.beginMutation()
+    const refresh = guard.canRefresh() ? Promise.resolve("stale") : Promise.resolve(null)
+    resolveMutation()
+    await mutation
+    guard.endMutation()
+
+    await expect(refresh).resolves.toBeNull()
+    expect(guard.canRefresh()).toBe(true)
+  })
 })

@@ -7,11 +7,21 @@ interface VersionRef {
 }
 
 export function createCartRefreshGuard(version: VersionRef = { current: 0 }) {
+  let mutationActive = false
+
   return {
     capture: () => version.current,
     invalidate() {
       version.current += 1
     },
+    beginMutation() {
+      version.current += 1
+      mutationActive = true
+    },
+    endMutation() {
+      mutationActive = false
+    },
+    canRefresh: () => !mutationActive,
     isCurrent: (candidate: number) => candidate === version.current,
   }
 }

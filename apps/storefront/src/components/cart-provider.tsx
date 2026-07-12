@@ -84,6 +84,10 @@ export function CartProvider({
   const refreshGuard = useMemo(() => createCartRefreshGuard(cartVersion), [])
 
   const refresh = useCallback(async () => {
+    if (!refreshGuard.canRefresh()) {
+      return
+    }
+
     const refreshVersion = refreshGuard.capture()
     setIsLoading(true)
     try {
@@ -111,7 +115,7 @@ export function CartProvider({
     }
 
     mutationLock.current = true
-    refreshGuard.invalidate()
+    refreshGuard.beginMutation()
     setIsMutating(true)
     try {
       setCart(await cartRequest(path, init))
@@ -134,6 +138,7 @@ export function CartProvider({
       }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")
     } finally {
+      refreshGuard.endMutation()
       mutationLock.current = false
       setIsMutating(false)
     }
@@ -145,7 +150,7 @@ export function CartProvider({
     }
 
     mutationLock.current = true
-    refreshGuard.invalidate()
+    refreshGuard.beginMutation()
     setIsMutating(true)
     try {
       let nextCart = cart
@@ -163,6 +168,7 @@ export function CartProvider({
       }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")
     } finally {
+      refreshGuard.endMutation()
       mutationLock.current = false
       setIsMutating(false)
     }
