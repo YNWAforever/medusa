@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { localeLabels, locales, type Locale } from "@fotomax/shared"
 import { CartDrawer } from "@/components/cart-drawer"
+import { getCatalogView } from "@/lib/catalog-view"
 import { CartProvider } from "@/components/cart-provider"
 import { SiteHeader } from "@/components/site-header"
 import { assertLocale } from "@/lib/locales"
@@ -32,6 +33,8 @@ export default async function LocaleLayout({
     notFound()
   }
 
+  const categories = await getCatalogView(locale)
+
   return (
     <html lang={locale}>
       <body>
@@ -40,7 +43,7 @@ export default async function LocaleLayout({
             <a className="skip-link" href="#main-content">
               {locale === "zh-HK" ? "跳至主要內容" : "Skip to main content"}
             </a>
-            <SiteHeader locale={locale} />
+            <SiteHeader locale={locale} categories={categories} />
             {children}
             <CartDrawer locale={locale} />
           </div>

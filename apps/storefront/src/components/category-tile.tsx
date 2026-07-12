@@ -1,22 +1,9 @@
 import { ArrowRight } from "lucide-react"
 import Link from "next/link"
 import React, { type CSSProperties } from "react"
-import { localize, t, type Category, type Locale } from "@fotomax/shared"
+import { t } from "@fotomax/shared"
+import type { CatalogCategory, Locale } from "../lib/medusa/contracts"
 import { localeHref } from "../lib/locales"
 
-export function CategoryTile({ category, locale }: { category: Category; locale: Locale }) {
-  return (
-    <Link
-      className="category-tile"
-      href={localeHref(locale, `/categories/${category.handle}`)}
-      style={{ "--accent": category.accent } as CSSProperties}
-    >
-      <span>{localize(category.name, locale)}</span>
-      <p>{localize(category.summary, locale)}</p>
-      <strong>
-        {t(locale, "browseCategory")}
-        <ArrowRight size={16} aria-hidden="true" />
-      </strong>
-    </Link>
-  )
-}
+const accents: Record<string, string> = { "photo-print": "#e84855", photobook: "#3f7cac", "personalized-gifts": "#f5a623", "instax-film": "#00a6a6", lifestyle: "#7b61ff", promotions: "#111827" }
+export function CategoryTile({ category, locale }: { category: CatalogCategory; locale: Locale }) { return <Link className="category-tile" href={localeHref(locale, `/categories/${category.handle}`)} style={{ "--accent": accents[category.handle] ?? "#111827" } as CSSProperties}><span>{category.title}</span><p>{category.summary}</p><strong>{t(locale, "browseCategory")}<ArrowRight size={16} aria-hidden="true" /></strong></Link> }

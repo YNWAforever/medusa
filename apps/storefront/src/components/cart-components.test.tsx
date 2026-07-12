@@ -2,21 +2,24 @@ import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { formatPrice, getProduct, getServiceEntry, t, type Locale } from "@fotomax/shared"
+import { t } from "@fotomax/shared"
+import type { ServiceEntry } from "../content/services"
+import { serviceEntries } from "../content/services"
+import type { CatalogCategory, CatalogProduct, Locale } from "../lib/medusa/contracts"
+import { formatCatalogMoney, getProductView } from "../lib/catalog-filters"
 import RootNotFound from "../../app/global-not-found"
 import CartPage from "../../app/[locale]/cart/page"
 import ServiceRoute from "../../app/[locale]/services/[handle]/page"
-import { getProductView } from "../lib/catalog-view"
 import { AddToCartButton } from "./add-to-cart-button"
 import { CartDrawer } from "./cart-drawer"
 import { CartProvider } from "./cart-provider"
 import { ProductDetail } from "./product-detail"
 import { SiteHeader } from "./site-header"
 
-const product = getProduct("classic-4r-photo-print")!
-const productView = getProductView(product.handle)!
-const service = getServiceEntry("upload-photo-print")!
-
+const product: CatalogProduct = { id: "prod_print", handle: "classic-4r-photo-print", title: "Classic 4R Photo Print", description: "Standard-size prints.", thumbnail: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1200&q=80", collectionHandle: "photo-print", badge: "Popular service", commerceMode: "retail", variants: [{ id: "variant_print", title: "Default", sku: "PRINT", options: [{ name: "Paper finish", value: "Glossy" }], price: { amount: 280, currencyCode: "hkd" }, inventory: { managed: true, available: true, quantity: 8 } }] }
+const category: CatalogCategory = { id: "pcol_print", handle: "photo-print", title: "Photo Print", summary: "Fast prints.", products: [product] }
+const productView = getProductView([category], product.handle)!
+const service: ServiceEntry = serviceEntries[0]!
 function renderDrawer(locale: Locale, quantity = 0) {
   return renderToStaticMarkup(
     <CartProvider initialItems={quantity === 0 ? [] : [{ product, quantity }]}>
@@ -48,9 +51,9 @@ describe("Fotomax cart and service composition", () => {
 
       expect(markup).toContain(`<aside class="cart-drawer" aria-label="${cart}">`)
       expect(markup).toContain('class="cart-line-quantity">2 x')
-      expect(markup).toContain(formatPrice(product.priceCents, locale))
+      expect(markup).toContain(formatCatalogMoney(product.variants[0].price, locale))
       expect(markup).toContain(`${subtotal}</span>`)
-      expect(markup).toContain(formatPrice(product.priceCents * 2, locale))
+      expect(markup).toContain(formatCatalogMoney({ amount: product.variants[0].price.amount * 2, currencyCode: "hkd" }, locale))
       expect(markup).toContain(`aria-label="${clearOptions}"`)
       expect(markup).toContain('aria-controls="cart-clear-confirmation"')
       expect(markup).toContain('aria-expanded="false"')

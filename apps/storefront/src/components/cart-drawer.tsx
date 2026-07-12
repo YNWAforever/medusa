@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { ChevronDown, ShoppingBag, Trash2 } from "lucide-react"
 import React, { useEffect, useRef, useState } from "react"
-import { formatPrice, localize, t, type Locale } from "@fotomax/shared"
+import { t } from "@fotomax/shared"
+import { formatCatalogMoney } from "../lib/catalog-filters"
+import type { Locale } from "../lib/medusa/contracts"
 import { getCartSubtotal } from "../lib/cart-state"
 import { localeHref } from "../lib/locales"
 import { useCart } from "./cart-provider"
@@ -144,16 +146,16 @@ export function CartDrawer({ locale }: { locale: Locale }) {
       <div className="cart-lines">
         {items.map((item) => (
           <div className="cart-line" key={item.product.handle}>
-            <span>{localize(item.product.name, locale)}</span>
+            <span>{item.product.title}</span>
             <strong className="cart-line-quantity">
-              {item.quantity} x {formatPrice(item.product.priceCents, locale)}
+              {item.quantity} x {formatCatalogMoney((item.product.variants.find((variant) => variant.inventory.available) ?? item.product.variants[0])?.price, locale)}
             </strong>
           </div>
         ))}
       </div>
       <div className="cart-total">
         <span>{locale === "zh-HK" ? "小計" : "Subtotal"}</span>
-        <strong>{formatPrice(getCartSubtotal(items), locale)}</strong>
+        <strong>{formatCatalogMoney({ amount: getCartSubtotal(items), currencyCode: "hkd" }, locale)}</strong>
       </div>
       <Link className="button primary wide" href={localeHref(locale, "/cart")}>
         {locale === "zh-HK" ? "查看購物車" : "View cart"}
