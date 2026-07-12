@@ -1,4 +1,4 @@
-﻿export const CART_COOKIE = "fm_cart_id"
+export const CART_COOKIE = "fm_cart_id"
 
 export const cartCookieOptions = {
   httpOnly: true,
@@ -6,4 +6,14 @@ export const cartCookieOptions = {
   secure: process.env.NODE_ENV === "production",
   path: "/",
   maxAge: 60 * 60 * 24 * 30,
+}
+
+export const CUSTOMER_TOKEN_COOKIE = "fm_customer_token"
+
+export const customerTokenCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: 60 * 60 * 8,
 }

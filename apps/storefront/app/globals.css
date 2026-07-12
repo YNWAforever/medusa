@@ -1219,7 +1219,143 @@ p {
   color: #ffffff;
 }
 
-@media (max-width: 620px) {
+
+.account-page {
+  min-height: 520px;
+  display: grid;
+  align-content: center;
+  gap: 28px;
+  padding-block: 64px;
+}
+
+.account-heading {
+  max-width: 640px;
+}
+
+.account-heading h1 {
+  margin: 0;
+  font-size: 4rem;
+  line-height: 1;
+}
+
+.account-form {
+  width: min(100%, 640px);
+  display: grid;
+  gap: 18px;
+}
+
+.account-field {
+  display: grid;
+  gap: 8px;
+}
+
+.account-field label {
+  color: #111827;
+  font-weight: 800;
+}
+
+.account-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.account-field input:focus-visible {
+  border-color: #007f7f;
+  outline: 3px solid rgba(0, 127, 127, 0.2);
+  outline-offset: 1px;
+}
+
+.account-field span {
+  color: var(--color-red-text);
+  font-size: 0.9rem;
+}
+
+.account-name-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.account-error-summary {
+  border-left: 4px solid var(--color-red-text);
+  padding: 12px 16px;
+  background: #fff4f4;
+  color: #631a20;
+}
+
+.account-error-summary strong,
+.account-error-summary p {
+  display: block;
+}
+
+.account-error-summary p {
+  margin: 4px 0 0;
+}
+
+.account-switch {
+  margin: 0;
+  color: #4b5563;
+}
+
+.account-switch a {
+  color: var(--color-red-text);
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.account-state {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  padding-block: 28px;
+}
+
+.account-state h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.order-history {
+  width: min(100%, 900px);
+}
+
+.order-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto minmax(120px, 0.7fr) minmax(120px, 0.7fr);
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding: 18px 0;
+}
+
+.order-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.order-row > div span,
+.order-row > span {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.order-row > strong {
+  white-space: nowrap;
+}@media (max-width: 620px) {
   .cart-drawer {
     right: 10px;
     bottom: 10px;
@@ -1250,4 +1386,22 @@ p {
   .not-found h1 {
     font-size: 2.5rem;
   }
-}
+
+  .account-page {
+    min-height: 440px;
+    padding-block: 48px;
+  }
+
+  .account-name-grid,
+  .order-row {
+    grid-template-columns: 1fr;
+  }
+
+  .order-row {
+    align-items: start;
+    gap: 8px;
+  }
+
+  .order-row > strong {
+    margin-top: 4px;
+  }}
