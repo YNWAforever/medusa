@@ -29,4 +29,21 @@ The integration command currently reaches database bootstrap and fails with conn
 
 ## CI gate
 
-`.github/workflows/phase-2a.yml` starts PostgreSQL and Redis services, migrates, seeds twice, runs the repository check, runs the Medusa integration suite, installs Chromium, and runs both Playwright projects. CI must publish the resulting deployment and order evidence before staging is considered ready.
+`.github/workflows/phase-2a.yml` starts PostgreSQL and Redis services, migrates, seeds twice, runs the repository check, builds the Cloudflare Container image, validates the Wrangler deployment bundle with a dry run, runs the Medusa integration suite, installs Chromium, and runs both Playwright projects. CI must pass before staging deployment. The live Cloudflare/Vercel deployment IDs and order evidence are recorded after the separate deployment flow.
+
+## Cloudflare MVP staging
+
+```text
+Git commit:
+GitHub Actions run:
+Cloudflare Worker URL:
+Cloudflare deployment ID:
+Cloudflare container status:
+Vercel deployment URL:
+Vercel deployment ID:
+Backend health result:
+Staging verifier result:
+Desktop browser result:
+Mobile browser result:
+Credential rotation confirmed:
+```

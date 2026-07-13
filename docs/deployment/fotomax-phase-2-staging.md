@@ -4,7 +4,7 @@
 
 Staging is a disposable transaction environment. It uses live Medusa catalog, inventory, fulfillment, payment-session, and order data, but it does not enable a real payment provider, production email, production inventory, or a production domain.
 
-The existing Vercel project remains the storefront host. The Medusa staging environment must provide the API, Admin, worker, PostgreSQL, and Redis services. Cloud provisioning is intentionally blocked until the owner approves the provider plan and usage charges at execution time.
+The existing Vercel project remains the storefront host. Cloudflare Containers runs the Medusa API and worker, Neon provides PostgreSQL, and Upstash provides Redis. This runbook is staging-only: do not use it for production resources, domains, data, or credentials.
 
 ## Required environment
 
@@ -35,21 +35,35 @@ Use strong, unique staging secrets. Never reuse production JWT, cookie, or store
 
 ## Deployment order
 
-1. Create or select the Medusa staging environment and managed PostgreSQL/Redis resources after approval.
-2. Deploy the Medusa API and worker configuration.
-3. Run `npm run db:migrate` against the staging database.
-4. Run `npm run seed:medusa` twice. The second run must be a no-op reconciliation with no duplicate handles, SKUs, branches, shipping options, or API keys.
-5. Record the Medusa API, worker, and Admin deployment IDs and verify `/health`.
-6. Set the three storefront environment variables in the existing Vercel staging environment.
-7. Deploy the storefront and record the Vercel deployment ID.
-8. Run `node scripts/verify-phase-2a-staging.mjs` against the two exact deployment URLs.
-9. Run browser verification at 1440x900 and 375x812 for both locales, including delivery, pickup, account orders, and Admin order visibility.
+1. Under Node 22, run `npm.cmd ci` and the full verification gate.
+2. Set `CLOUDFLARE_API_TOKEN` only in the current PowerShell process and validate Cloudflare authentication with `npm.cmd run cloudflare:whoami`.
+3. Stop for explicit Task 7 approval before creating any staging resource or secret. This gate covers Neon, Upstash, Cloudflare, Vercel, and all secret creation or entry.
+4. Provision one Neon staging database in Singapore or the nearest mutually available APAC region.
+5. Provision one Upstash Redis database in Singapore/APAC and obtain its native TLS `rediss://` connection string. REST credentials and Upstash Box credentials are invalid for `REDIS_URL`.
+6. Generate unique 48-byte random values for `JWT_SECRET`, `COOKIE_SECRET`, and `STOREFRONT_SESSION_SECRET`.
+7. Set the Neon `DATABASE_URL` and native Upstash `REDIS_URL` only in the current process, then run `npm.cmd run db:migrate` and `npm.cmd run seed:medusa` twice. The second seed must reconcile without duplicate handles, SKUs, branches, shipping options, or API keys.
+8. Enter the seven Cloudflare Worker secrets interactively. Do not paste their values into shell history, files, logs, or this runbook.
+
+```powershell
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- DATABASE_URL
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- REDIS_URL
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- STORE_CORS
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- ADMIN_CORS
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- AUTH_CORS
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- JWT_SECRET
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- COOKIE_SECRET
+```
+
+9. Deploy with `npm.cmd run cloudflare:deploy`, record the Worker URL and deployment identifier, then run `npm.cmd run container:list --workspace @fotomax/cloudflare`.
+10. In the existing Vercel staging project, set `MEDUSA_BACKEND_URL`, `MEDUSA_PUBLISHABLE_KEY`, and `STOREFRONT_SESSION_SECRET`, then redeploy the storefront.
+11. Run `node scripts/verify-phase-2a-staging.mjs` against the exact Worker and Vercel URLs, then run browser verification at 1440x900 and 375x812 for both locales, including delivery, pickup, account orders, and Admin order visibility.
+12. After deployment, rotate the Cloudflare token and the pasted Upstash Box credential.
 
 ## Health and rollback
 
-The API `/health` endpoint, worker logs, Redis connection, and a completed system-payment retail order are required staging evidence. A healthy storefront without a healthy Medusa worker is not a successful deployment.
+The Worker `/health` endpoint, container status, Redis connection, and a completed system-payment retail order are required staging evidence. A healthy Vercel storefront without a healthy Cloudflare Container is not a successful deployment.
 
-Application rollback never reverses database migrations. If a rollback is needed, first stop new traffic or disable the affected deployment, capture the deployment IDs and logs, and use a forward-compatible application release. Only an explicitly reviewed database migration can change schema state.
+For application rollback, restore the previous Cloudflare Worker deployment and the previous Vercel deployment. Capture the failed deployment IDs and logs first. Never reverse an already-applied Medusa migration during an application rollback; use a forward-compatible release, and alter schema only through an explicitly reviewed migration.
 
 ## Test data cleanup
 
