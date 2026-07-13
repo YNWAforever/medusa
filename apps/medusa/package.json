@@ -6,6 +6,7 @@
     "dev": "node ./medusa-cli.cjs develop",
     "build": "node ./medusa-cli.cjs build",
     "start": "node ./medusa-cli.cjs start",
+    "start:container": "medusa start --host 0.0.0.0 --port 9000",
     "seed": "node ./medusa-cli.cjs exec ./src/scripts/seed.ts",
     "db:generate": "node ./medusa-cli.cjs db:generate",
     "db:migrate": "node ./medusa-cli.cjs db:migrate",

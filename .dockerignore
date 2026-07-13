@@ -1,0 +1,16 @@
+.git
+.worktrees
+.superpowers
+node_modules
+**/node_modules
+apps/storefront
+apps/cloudflare
+**/.next
+**/.medusa
+coverage
+test-results
+playwright-report
+.env
+.env.*
+!**/.env.example
+npm-debug.log*
