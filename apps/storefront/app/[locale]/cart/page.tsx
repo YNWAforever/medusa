@@ -1,6 +1,6 @@
 import Link from "next/link"
 import React from "react"
-import { t, type Locale } from "@fotomax/shared"
+import type { Locale } from "@fotomax/shared"
 import { assertLocale, localeHref } from "../../../src/lib/locales"
 
 export default async function CartPage({ params }: { params: Promise<{ locale: string }> }) {
@@ -9,8 +9,8 @@ export default async function CartPage({ params }: { params: Promise<{ locale: s
 
   return (
     <main id="main-content" className="page-shell cart-page">
-      <p className="eyebrow">{t(locale, "comingSoon")}</p>
-      <h1>{locale === "zh-HK" ? "購物車已準備好" : "Your cart is ready"}</h1>
+      <p className="eyebrow">{locale === "zh-HK" ? "購物車" : "Cart"}</p>
+      <h1>{locale === "zh-HK" ? "準備結帳" : "Ready to checkout"}</h1>
       <p>
         {locale === "zh-HK"
           ? "購物車內容會在你繼續瀏覽時保留。"
@@ -18,11 +18,11 @@ export default async function CartPage({ params }: { params: Promise<{ locale: s
       </p>
       <p>
         {locale === "zh-HK"
-          ? "結帳、付款及訂單確認即將推出。"
-          : "Checkout, payment, and order confirmation are coming soon."}
+          ? "確認聯絡資料，選擇送貨或門市取貨，然後完成訂單。"
+          : "Confirm your details, choose delivery or pickup, and complete your order."}
       </p>
-      <Link className="button primary" href={localeHref(locale, "/")}>
-        {locale === "zh-HK" ? "繼續選購" : "Continue shopping"}
+      <Link className="button primary" href={localeHref(locale, "/checkout")}>
+        {locale === "zh-HK" ? "前往結帳" : "Go to checkout"}
       </Link>
     </main>
   )

@@ -191,9 +191,9 @@ describe("Fotomax cart and service composition", () => {
   })
 
   it.each([
-    ["en", "Coming soon", "Continue shopping"],
-    ["zh-HK", "即將推出", "繼續選購"],
-  ] as const)("renders honest cart and service destinations in %s", async (locale, comingSoon, continueShopping) => {
+    ["en", "Coming soon", "Go to checkout"],
+    ["zh-HK", "即將推出", "前往結帳"],
+  ] as const)("renders honest cart and service destinations in %s", async (locale, comingSoon, checkoutLabel) => {
     const cartElement = await CartPage({ params: Promise.resolve({ locale }) })
     const serviceElement = await ServiceRoute({
       params: Promise.resolve({ locale, handle: service.handle }),
@@ -204,19 +204,19 @@ describe("Fotomax cart and service composition", () => {
     for (const markup of [cart, serviceMarkup]) {
       expect(markup.match(/<h1>/g)).toHaveLength(1)
       expect(markup).toContain('<main id="main-content"')
-      expect(markup).toContain(comingSoon)
     }
 
+    expect(serviceMarkup).toContain(comingSoon)
     expect(cart).toContain(
       locale === "zh-HK"
         ? "購物車內容會在你繼續瀏覽時保留。"
         : "Your cart stays saved while you continue browsing.",
     )
-    expect(cart).toContain(`href="/${locale}"`)
-    expect(cart).toContain(`>${continueShopping}</a>`)
-    expect(serviceMarkup).toContain(`href="/${locale}/categories/${service.categoryHandle}"`)
+    expect(cart).toContain(locale === "zh-HK" ? "準備結帳" : "Ready to checkout")
+    expect(cart).toContain('href="/' + locale + '/checkout"')
+    expect(cart).toContain('>' + checkoutLabel + '</a>')
+    expect(serviceMarkup).toContain('href="/' + locale + '/categories/' + service.categoryHandle + '"')
   })
-
   it("keeps customer copy honest and wires cart state at the locale boundary", async () => {
     const englishCart = renderToStaticMarkup(
       await CartPage({ params: Promise.resolve({ locale: "en" }) }),
