@@ -1,3 +1,5 @@
+import { waitForHealthyBackend } from "./staging-health.mjs"
+
 const storefrontUrl = process.env.STAGING_STOREFRONT_URL?.replace(/\/$/, "")
 const medusaUrl = process.env.STAGING_MEDUSA_URL?.replace(/\/$/, "")
 const publishableKey = process.env.STAGING_MEDUSA_PUBLISHABLE_KEY ?? process.env.MEDUSA_PUBLISHABLE_KEY
@@ -40,7 +42,8 @@ const evidence = {
   orderEmail: `phase-2a-staging-${Date.now()}@fotomax.test`,
 }
 
-await request(medusaUrl, "/health", { headers: { accept: "text/plain" } })
+const health = await waitForHealthyBackend(medusaUrl)
+console.log(`Medusa healthy after ${health.attempt} attempt(s)`)
 for (const locale of ["en", "zh-HK"]) {
   const response = await fetch(`${storefrontUrl}/${locale}`)
   if (!response.ok) throw new Error(`GET /${locale} returned ${response.status}`)
