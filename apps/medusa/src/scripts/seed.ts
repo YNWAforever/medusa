@@ -85,6 +85,7 @@ function buildVariantOptions(
 
 export function buildFotomaxProductInputs(
   collectionIdsByHandle: ReadonlyMap<string, string>,
+  shippingProfileId?: string,
 ): CreateProductsWorkflowInput["products"] {
   return products.map((product) => {
     const collectionId = collectionIdsByHandle.get(product.categoryHandle)
@@ -110,6 +111,7 @@ export function buildFotomaxProductInputs(
       title: localize(product.name, "en"),
       description: localize(product.description, "en"),
       collection_id: collectionId,
+      ...(shippingProfileId ? { shipping_profile_id: shippingProfileId } : {}),
       status: product.commerceMode === "deferred" ? "draft" : "published",
       thumbnail: product.image,
       options,
@@ -185,6 +187,14 @@ export default async function seedFotomax({ container }: ExecArgs) {
   await reconcileFotomaxOperationalData(
     createMedusaOperationalOperations(container),
   )
+  const referenceOperations = createMedusaReconcileOperations(container)
+  const shippingProfiles = await referenceOperations.listShippingProfiles?.([
+    "Fotomax Standard",
+  ])
+  const shippingProfileId = shippingProfiles?.[0]?.id
+  if (shippingProfileId) {
+    await reconcileFotomaxReferenceData(referenceOperations, shippingProfileId)
+  }
   logger.info("Reconciled Fotomax Medusa reference and operational data")
   logger.info(
     `Deferred ${serviceEntries.length} next-phase service entries without a Medusa model`,
@@ -221,6 +231,7 @@ export interface FotomaxReconcileOperations {
   ): Promise<ReferenceRecord[]>
   listProducts(handles: readonly string[]): Promise<ReferenceRecord[]>
   listVariants(skus: readonly string[]): Promise<ReferenceRecord[]>
+  listShippingProfiles?(names: readonly string[]): Promise<ReferenceRecord[]>
   createProducts(input: CreateProductsWorkflowInput): Promise<ReferenceRecord[]>
   updateProducts(
     input: UpdateProductsWorkflowInputProducts,
@@ -299,6 +310,11 @@ function createMedusaReconcileOperations(
         { sku: [...skus] },
       )
     },
+    listShippingProfiles(names) {
+      return listReferenceRecords(container, "shipping_profile", ["id", "name"], {
+        name: [...names],
+      })
+    },
     async createProducts(input) {
       return (await createProductsWorkflow(container).run({ input })).result
     },
@@ -348,6 +364,7 @@ type VariantUpdate = NonNullable<ProductUpdate["variants"]>[number]
 
 export async function reconcileFotomaxReferenceData(
   operations: FotomaxReconcileOperations,
+  shippingProfileId?: string,
 ): Promise<void> {
   const payload = buildFotomaxSeedPayload()
   const desiredRegionNames = payload.regions.map((region) => region.name)
@@ -405,7 +422,7 @@ export async function reconcileFotomaxReferenceData(
         : [],
     ),
   )
-  const desiredProducts = buildFotomaxProductInputs(collectionIdsByHandle)
+  const desiredProducts = buildFotomaxProductInputs(collectionIdsByHandle, shippingProfileId)
   const desiredProductHandles = desiredProducts.map(
     (product) => product.handle ?? "",
   )

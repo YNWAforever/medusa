@@ -3,13 +3,18 @@ import { describe, expect, it } from "vitest"
 import playwrightConfig from "../playwright.config"
 
 describe("Playwright server ownership", () => {
-  it("starts and owns a fresh storefront server by default", () => {
-    const webServer = Array.isArray(playwrightConfig.webServer)
-      ? playwrightConfig.webServer[0]
-      : playwrightConfig.webServer
+  it("starts and owns fresh Medusa and storefront servers by default", () => {
+    const servers = Array.isArray(playwrightConfig.webServer)
+      ? playwrightConfig.webServer
+      : playwrightConfig.webServer ? [playwrightConfig.webServer] : []
+    const medusa = servers.find((server) => server.name === "Medusa")
+    const storefront = servers.find((server) => server.name === "Storefront")
 
-    expect(webServer?.reuseExistingServer).toBe(false)
-    expect(webServer?.command).toContain("next dev")
+    expect(servers).toHaveLength(2)
+    expect(medusa?.reuseExistingServer).toBe(false)
+    expect(medusa?.command).toContain("dev --workspace @fotomax/medusa")
+    expect(storefront?.reuseExistingServer).toBe(false)
+    expect(storefront?.command).toContain("next dev")
   })
 
   it("keeps both production applications in the canonical root build gate", () => {

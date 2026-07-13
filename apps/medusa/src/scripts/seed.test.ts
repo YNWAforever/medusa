@@ -396,4 +396,8 @@ describe("Fotomax Medusa seed workflows", () => {
       },
     ])
   })
+  it("assigns the operational shipping profile when reconciling checkout products", () => {
+    const seeded = buildFotomaxProductInputs(collectionIds(), "sp_fotomax")
+    expect(seeded.every((product) => product.shipping_profile_id === "sp_fotomax")).toBe(true)
+  })
 })

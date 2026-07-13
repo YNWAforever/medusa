@@ -163,8 +163,8 @@ test("unknown nested locale routes keep nearest localized recovery", async ({ pa
   }
 })
 
-test("cart route explains the upcoming checkout flow", async ({ page }) => {
+test("cart route opens the live checkout flow", async ({ page }) => {
   await page.goto("/en/cart")
-  await expect(page.getByRole("heading", { name: "Your cart is ready" })).toBeVisible()
-  await expect(page.getByText(/checkout, payment, and order confirmation are coming soon/i)).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Ready to checkout" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Go to checkout" })).toHaveAttribute("href", "/en/checkout")
 })
