@@ -11,4 +11,7 @@ playwright-report/
 .env
 .env.*
 !.env.example
+# Cloudflare local secrets
+.dev.vars*
+!.dev.vars.example
 npm-debug.log*
