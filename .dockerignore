@@ -14,3 +14,12 @@ playwright-report
 .env.*
 !**/.env.example
 npm-debug.log*
+**/.git
+**/.worktrees
+**/dist
+**/build
+**/.output
+**/.turbo
+**/coverage
+**/test-results
+**/playwright-report

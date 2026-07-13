@@ -21,9 +21,10 @@ RUN npm install --omit=dev --ignore-scripts
 FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
+ENV PATH="/server/node_modules/.bin:${PATH}"
 WORKDIR /server
 
 COPY --from=build /server/apps/medusa/.medusa/server ./
 
 EXPOSE 9000
-CMD ["npm", "run", "start:container"]
+CMD ["medusa", "start", "--host", "0.0.0.0", "--port", "9000"]

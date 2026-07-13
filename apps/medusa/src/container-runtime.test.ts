@@ -14,4 +14,35 @@ describe("Medusa container runtime", () => {
       "medusa start --host 0.0.0.0 --port 9000",
     )
   })
+
+  it("runs Medusa directly with the server-local binaries available", () => {
+    const dockerfilePath = fileURLToPath(new URL("../../../Dockerfile", import.meta.url))
+    const dockerfile = readFileSync(dockerfilePath, "utf8")
+
+    expect(dockerfile).toContain('ENV PATH="/server/node_modules/.bin:${PATH}"')
+    expect(dockerfile).toContain(
+      'CMD ["medusa", "start", "--host", "0.0.0.0", "--port", "9000"]',
+    )
+  })
+
+  it("excludes recursive build and test artifacts from the container context", () => {
+    const dockerignorePath = fileURLToPath(
+      new URL("../../../.dockerignore", import.meta.url),
+    )
+    const dockerignoreLines = readFileSync(dockerignorePath, "utf8").split(/\r?\n/)
+
+    for (const pattern of [
+      "**/.git",
+      "**/.worktrees",
+      "**/dist",
+      "**/build",
+      "**/.output",
+      "**/.turbo",
+      "**/coverage",
+      "**/test-results",
+      "**/playwright-report",
+    ]) {
+      expect(dockerignoreLines).toContain(pattern)
+    }
+  })
 })
