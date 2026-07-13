@@ -6,8 +6,9 @@ import { waitForHealthyBackend } from "./staging-health.mjs"
 test("returns immediately when Medusa is healthy", async () => {
   const calls = []
   const result = await waitForHealthyBackend("https://api.example", {
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
       calls.push(url)
+      assert.deepEqual(options, { headers: { accept: "text/plain" } })
       return new Response("OK", { status: 200 })
     },
     sleep: async () => {},
@@ -73,4 +74,23 @@ test("sanitizes the final network error", async () => {
       return true
     },
   )
+})
+test("uses the default 30-attempt policy with 2000ms delays", async () => {
+  let fetchCount = 0
+  const sleeps = []
+
+  await assert.rejects(
+    waitForHealthyBackend("https://api.example", {
+      fetchImpl: async () => {
+        fetchCount += 1
+        return new Response(null, { status: 503 })
+      },
+      sleep: async (milliseconds) => sleeps.push(milliseconds),
+    }),
+    /Medusa health check failed after 30 attempts/,
+  )
+
+  assert.equal(fetchCount, 30)
+  assert.equal(sleeps.length, 29)
+  assert.ok(sleeps.every((milliseconds) => milliseconds === 2_000))
 })
