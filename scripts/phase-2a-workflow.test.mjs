@@ -16,7 +16,7 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
     "npm run build --workspace @fotomax/medusa",
   )
   const start = workflow.indexOf(
-    "(cd apps/medusa/.medusa/server && ../../../../node_modules/.bin/medusa start",
+    "NODE_ENV=development npm run dev --workspace @fotomax/medusa",
   )
   const waitForHealth = workflow.indexOf("waitForHealthyBackend")
   const check = workflow.indexOf("npm run check")
@@ -34,6 +34,7 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
     workflow,
     /npm run start --workspace @fotomax\/medusa/,
   )
+  assert.doesNotMatch(workflow, /\.medusa\/server.*medusa start/)
   assert.doesNotMatch(
     workflow,
     /MEDUSA_PUBLISHABLE_KEY:\s*\$\{\{\s*secrets\./,
