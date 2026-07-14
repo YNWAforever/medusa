@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           npm run build --workspace @fotomax/medusa
-          npm run start --workspace @fotomax/medusa > "$RUNNER_TEMP/medusa.log" 2>&1 &
+          (cd apps/medusa/.medusa/server && ../../../../node_modules/.bin/medusa start --host 127.0.0.1 --port 9000) > "$RUNNER_TEMP/medusa.log" 2>&1 &
           medusa_pid=$!
           cleanup() {
             status=$?

@@ -16,7 +16,7 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
     "npm run build --workspace @fotomax/medusa",
   )
   const start = workflow.indexOf(
-    "npm run start --workspace @fotomax/medusa",
+    "(cd apps/medusa/.medusa/server && ../../../../node_modules/.bin/medusa start",
   )
   const waitForHealth = workflow.indexOf("waitForHealthyBackend")
   const check = workflow.indexOf("npm run check")
@@ -30,6 +30,10 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
   assert.match(workflow, /trap cleanup EXIT/)
   assert.match(workflow, /kill "\$medusa_pid"/)
   assert.match(workflow, /\$RUNNER_TEMP\/medusa\.log/)
+  assert.doesNotMatch(
+    workflow,
+    /npm run start --workspace @fotomax\/medusa/,
+  )
   assert.doesNotMatch(
     workflow,
     /MEDUSA_PUBLISHABLE_KEY:\s*\$\{\{\s*secrets\./,
