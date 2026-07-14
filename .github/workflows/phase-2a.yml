@@ -56,7 +56,25 @@ jobs:
       - run: npm run seed:medusa
       - run: npm run seed:medusa
       - run: npm run ci:export-publishable-key --workspace @fotomax/medusa
-      - run: npm run check
+      - name: Run canonical checks with live Medusa
+        shell: bash
+        run: |
+          npm run build --workspace @fotomax/medusa
+          npm run start --workspace @fotomax/medusa > "$RUNNER_TEMP/medusa.log" 2>&1 &
+          medusa_pid=$!
+          cleanup() {
+            status=$?
+            trap - EXIT
+            kill "$medusa_pid" 2>/dev/null || true
+            wait "$medusa_pid" 2>/dev/null || true
+            if [ "$status" -ne 0 ]; then
+              tail -n 200 "$RUNNER_TEMP/medusa.log"
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          node --input-type=module -e 'import { waitForHealthyBackend } from "./scripts/staging-health.mjs"; await waitForHealthyBackend(process.env.MEDUSA_BACKEND_URL)'
+          npm run check
       - run: npm run cloudflare:container:build
       - run: npm exec --workspace @fotomax/cloudflare wrangler -- deploy --dry-run
       - run: npm run test:integration --workspace @fotomax/medusa
