@@ -28,7 +28,8 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
   assert.ok(waitForHealth > start)
   assert.ok(check > waitForHealth)
   assert.match(workflow, /trap cleanup EXIT/)
-  assert.match(workflow, /kill "\$medusa_pid"/)
+  assert.match(workflow, /setsid bash -c/)
+  assert.match(workflow, /kill -- -"\$medusa_pid"/)
   assert.match(workflow, /\$RUNNER_TEMP\/medusa\.log/)
   assert.doesNotMatch(
     workflow,

@@ -60,12 +60,12 @@ jobs:
         shell: bash
         run: |
           npm run build --workspace @fotomax/medusa
-          NODE_ENV=development npm run dev --workspace @fotomax/medusa > "$RUNNER_TEMP/medusa.log" 2>&1 &
+          setsid bash -c 'exec env NODE_ENV=development npm run dev --workspace @fotomax/medusa' > "$RUNNER_TEMP/medusa.log" 2>&1 &
           medusa_pid=$!
           cleanup() {
             status=$?
             trap - EXIT
-            kill "$medusa_pid" 2>/dev/null || true
+            kill -- -"$medusa_pid" 2>/dev/null || true
             wait "$medusa_pid" 2>/dev/null || true
             if [ "$status" -ne 0 ]; then
               tail -n 200 "$RUNNER_TEMP/medusa.log"
