@@ -44,7 +44,6 @@ jobs:
       JWT_SECRET: fotomax-ci-jwt-secret
       COOKIE_SECRET: fotomax-ci-cookie-secret
       MEDUSA_BACKEND_URL: http://localhost:9000
-      MEDUSA_PUBLISHABLE_KEY: ${{ secrets.MEDUSA_PUBLISHABLE_KEY }}
       STOREFRONT_SESSION_SECRET: fotomax-ci-session-secret
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +55,7 @@ jobs:
       - run: npm run db:migrate
       - run: npm run seed:medusa
       - run: npm run seed:medusa
+      - run: npm run ci:export-publishable-key --workspace @fotomax/medusa
       - run: npm run check
       - run: npm run cloudflare:container:build
       - run: npm exec --workspace @fotomax/cloudflare wrangler -- deploy --dry-run

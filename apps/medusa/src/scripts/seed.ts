@@ -26,6 +26,7 @@ import type { ExecArgs, Logger, WorkflowTypes } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { categories, localize, products, serviceEntries } from "@fotomax/shared"
 import { reconcileByKey } from "./reconcile"
+import { STAGING_PUBLISHABLE_KEY_TITLE } from "./seed-constants"
 import {
   createMedusaOperationalOperations,
   reconcileFotomaxOperationalData,
@@ -202,8 +203,6 @@ export default async function seedFotomax({ container }: ExecArgs) {
 }
 
 const STAGING_SALES_CHANNEL_NAME = "Fotomax Hong Kong Staging"
-const STAGING_PUBLISHABLE_KEY_TITLE = "Fotomax Storefront Staging"
-
 export type ReferenceRecord = {
   id: string
   name?: string
