@@ -17,13 +17,13 @@ describe("Playwright server ownership", () => {
     expect(storefront?.command).toContain("next dev")
   })
 
-  it("keeps both production applications in the canonical root build gate", () => {
+  it("keeps every production application in the canonical root build gate", () => {
     const rootPackage = JSON.parse(
       readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
     ) as { scripts: Record<string, string> }
 
     expect(rootPackage.scripts.build).toBe(
-      "npm run build --workspace @fotomax/storefront && npm run build --workspace @fotomax/medusa",
+      "npm run build --workspace @fotomax/storefront && npm run build --workspace @fotomax/medusa && npm run build --workspace @fotomax/cloudflare",
     )
     expect(rootPackage.scripts.check).toBe(
       "npm run typecheck && npm run test && npm run build",

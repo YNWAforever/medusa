@@ -1,6 +1,7 @@
 import path from "node:path"
 
 import { beforeAll, describe, expect, it } from "@jest/globals"
+import { cancelOrderWorkflow } from "@medusajs/core-flows"
 import type { ExecArgs } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import {
@@ -103,17 +104,18 @@ medusaIntegrationTestRunner({
         expect(region?.id).toBeTruthy()
 
         const variant = await findRetailVariant(options)
-        const branchResponse = await options.api.get("/store/branches")
-        const branch = branchResponse.data.branches.find(
-          (candidate: QueryRecord) => candidate.testOnly === true && candidate.pickupEnabled === true,
-        )
-        expect(branch?.shippingOptionId).toBeTruthy()
-
         const cartResponse = await options.api.post("/store/carts", {
           region_id: region.id,
         })
         const cart = asRecord(cartResponse.data.cart)
         const cartId = String(cart.id)
+        const branchResponse = await options.api.get("/store/branches", {
+          params: { cart_id: cartId },
+        })
+        const branch = branchResponse.data.branches.find(
+          (candidate: QueryRecord) => candidate.compatible === true,
+        )
+        expect(branch?.shippingOptionId).toBeTruthy()
         const lineResponse = await options.api.post(`/store/carts/${cartId}/line-items`, {
           variant_id: variant.id,
           quantity: 1,
@@ -159,24 +161,35 @@ medusaIntegrationTestRunner({
         )
 
         const reservationsBeforeCompletion = await queryReservations(options, lineItemId)
-        expect(reservationsBeforeCompletion.length).toBeGreaterThan(0)
+        expect(reservationsBeforeCompletion).toHaveLength(0)
 
         const completion = await options.api.post(`/store/carts/${cartId}/complete`)
         expect(completion.data.type).toBe("order")
         const order = asRecord(completion.data.order)
         expect(order.id).toBeTruthy()
 
-        const adminOrder = await options.api.get(`/admin/orders/${order.id}`)
-        expect(adminOrder.data.order.id).toBe(order.id)
+        const query = options.getContainer().resolve(ContainerRegistrationKeys.QUERY)
+        const adminOrder = await query.graph({
+          entity: "order",
+          fields: ["id", "items.id"],
+          filters: { id: order.id },
+        })
+        const adminOrderRecord = asRecord(adminOrder.data?.[0])
+        const adminOrderItems = Array.isArray(adminOrderRecord.items)
+          ? adminOrderRecord.items.map(asRecord)
+          : []
+        const orderLineItemId = String(adminOrderItems[0]?.id)
+        expect(adminOrderRecord.id).toBe(order.id)
+        expect(orderLineItemId).not.toBe("undefined")
 
-        const reservationsAfterCompletion = await queryReservations(options, lineItemId)
+        const reservationsAfterCompletion = await queryReservations(options, orderLineItemId)
         expect(reservationsAfterCompletion.length).toBeGreaterThan(0)
-        await options.api.post(`/admin/orders/${order.id}/cancel`)
+        await cancelOrderWorkflow(options.getContainer()).run({
+          input: { order_id: String(order.id) },
+        })
 
-        const reservationsAfterCancellation = await queryReservations(options, lineItemId)
-        expect(reservationsAfterCancellation.length).toBeLessThanOrEqual(
-          reservationsBeforeCompletion.length,
-        )
+        const reservationsAfterCancellation = await queryReservations(options, orderLineItemId)
+        expect(reservationsAfterCancellation).toHaveLength(0)
         expect(refreshedCart.id).toBe(cartId)
       })
     })
