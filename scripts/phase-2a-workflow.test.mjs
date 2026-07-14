@@ -40,3 +40,19 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
     /MEDUSA_PUBLISHABLE_KEY:\s*\$\{\{\s*secrets\./,
   )
 })
+
+test("builds the container offline before the Wrangler deployment dry-run", () => {
+  const containerBuild = workflow.indexOf(
+    "- run: npm run cloudflare:container:build:ci",
+  )
+  const wranglerDryRun = workflow.indexOf(
+    "- run: npm exec --workspace @fotomax/cloudflare wrangler -- deploy --dry-run",
+  )
+
+  assert.ok(containerBuild >= 0)
+  assert.ok(wranglerDryRun > containerBuild)
+  assert.doesNotMatch(
+    workflow,
+    /^\s*- run: npm run cloudflare:container:build\r?$/m,
+  )
+})

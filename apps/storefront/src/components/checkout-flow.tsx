@@ -32,6 +32,22 @@ const emptyContact: ContactState = {
   postalCode: "",
 }
 
+export function buildContactPayload(
+  contact: ContactState,
+  selectedKind: "delivery" | "pickup",
+) {
+  const { email, firstName, lastName, phone, address1, address2, city, postalCode } = contact
+  return {
+    email,
+    firstName,
+    lastName,
+    phone,
+    address: selectedKind === "delivery"
+      ? { address1, address2: address2 || null, city, postalCode, countryCode: "hk" }
+      : null,
+  }
+}
+
 function normalizeCheckout(value: CheckoutSeed): CheckoutView {
   return {
     customer: null,
@@ -126,10 +142,10 @@ export function CheckoutFlow({ locale, initialCheckout }: { locale: Locale; init
     setError(null)
     setIsSubmitting(true)
     try {
-      const address = selectedKind === "delivery"
-        ? { address1: contact.address1, address2: contact.address2 || null, city: contact.city, postalCode: contact.postalCode, countryCode: "hk" }
-        : null
-      const result = await post("/api/checkout/contact", { ...contact, address })
+      const result = await post(
+        "/api/checkout/contact",
+        buildContactPayload(contact, selectedKind),
+      )
       if (checkout && result.cart) setCheckout((current) => current ? { ...current, cart: result.cart as CheckoutView["cart"] } : current)
       setStage("fulfillment")
     } catch (submitError) {

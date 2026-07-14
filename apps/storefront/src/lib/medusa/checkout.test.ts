@@ -86,6 +86,50 @@ describe("checkout adapter", () => {
     expect(() => parseFulfillmentInput({ kind: "delivery", shippingOptionId: "so_delivery", branchHandle: null })).not.toThrow()
   })
 
+  it("expands the saved cart address before validating delivery", async () => {
+    let requestedFields = ""
+    const cart = {
+      ...emptyCart,
+      shipping_address: {
+        address_1: "Test address",
+        city: "Hong Kong",
+        country_code: "hk",
+      },
+    }
+    const sdk = {
+      store: {
+        cart: {
+          retrieve: async (_id: string, query: { fields?: string }) => {
+            requestedFields = query.fields ?? ""
+            return { cart }
+          },
+          update: async () => ({ cart }),
+          addShippingMethod: async () => ({ cart }),
+          complete: async () => ({ type: "cart", cart: {}, error: {} }),
+        },
+        fulfillment: {
+          listCartOptions: async () => ({ shipping_options: rawOptions }),
+        },
+        payment: {
+          listPaymentProviders: async () => ({ payment_providers: [] }),
+          initiatePaymentSession: async () => ({ payment_collection: {} }),
+        },
+      },
+    }
+    const options = projectShippingOptions(rawOptions, branches, "en")
+
+    await createCheckoutAdapter(sdk).setFulfillment(
+      "cart_123",
+      parseFulfillmentInput({
+        kind: "delivery",
+        shippingOptionId: "so_delivery",
+        branchHandle: null,
+      }),
+      options,
+    )
+
+    expect(requestedFields).toContain("*shipping_address")
+  })
   it("replaces a previous shipping method and preserves the cart while blocking incompatible pickup", async () => {
     const calls: string[] = []
     const sdk = {

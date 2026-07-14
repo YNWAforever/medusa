@@ -14,6 +14,7 @@
     "build": "npm run build --workspace @fotomax/storefront && npm run build --workspace @fotomax/medusa && npm run build --workspace @fotomax/cloudflare",
     "cloudflare:whoami": "npm run whoami --workspace @fotomax/cloudflare",
     "cloudflare:container:build": "npm run container:build --workspace @fotomax/cloudflare",
+    "cloudflare:container:build:ci": "npm run container:build:ci --workspace @fotomax/cloudflare",
     "cloudflare:deploy": "npm run deploy --workspace @fotomax/cloudflare",
     "check": "npm run typecheck && npm run test && npm run build",
     "dev": "npm run dev --workspace @fotomax/storefront",

@@ -107,7 +107,7 @@ export interface CheckoutSdk {
   }
 }
 
-const checkoutFields = "id,region_id,currency_code,email,subtotal,shipping_total,tax_total,total,shipping_address,*items,*items.variant,*items.variant.product,*shipping_methods"
+const checkoutFields = "id,region_id,currency_code,email,subtotal,shipping_total,tax_total,total,*shipping_address,*items,*items.variant,*items.variant.product,*shipping_methods"
 const orderFields = "id,display_id,email,total,currency_code,created_at"
 
 function record(value: unknown, code: CheckoutErrorCode = "checkout_unavailable"): Record<string, unknown> {

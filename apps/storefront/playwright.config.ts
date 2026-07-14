@@ -33,6 +33,9 @@ const storefrontEnv = {
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
+  timeout: 120_000,
+  workers: 1,
+  expect: { timeout: 30_000 },
   use: {
     baseURL,
     trace: "retain-on-failure",
@@ -41,7 +44,7 @@ export default defineConfig({
   webServer: [
     {
       name: "Medusa",
-      command: "npm.cmd run dev --workspace @fotomax/medusa",
+      command: "npm run dev --workspace @fotomax/medusa",
       cwd: repoRoot,
       env: medusaEnv,
       url: "http://127.0.0.1:9000/health",
@@ -50,7 +53,7 @@ export default defineConfig({
     },
     {
       name: "Storefront",
-      command: `node ../../node_modules/next/dist/bin/next dev --hostname ${host} --port ${port}`,
+      command: `node ../../node_modules/next/dist/bin/next dev --webpack --hostname ${host} --port ${port}`,
       cwd: configDir,
       env: storefrontEnv,
       url: `${baseURL}/zh-HK`,

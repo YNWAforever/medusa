@@ -12,6 +12,7 @@
     "whoami": "wrangler whoami",
     "secret:put": "wrangler secret put",
     "container:build": "wrangler containers build ../.. --tag fotomax-medusa:ci",
+    "container:build:ci": "docker build --tag fotomax-medusa:ci ../..",
     "container:list": "wrangler containers list"
   },
   "dependencies": {

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { CheckoutFlow } from "./checkout-flow"
+import { buildContactPayload, CheckoutFlow } from "./checkout-flow"
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
@@ -30,6 +30,39 @@ const checkout = {
 }
 
 describe("localized checkout flow", () => {
+  it("posts only the contact fields accepted by the checkout API", () => {
+    const contact = {
+      email: "guest@fotomax.test",
+      firstName: "Foto",
+      lastName: "Max",
+      phone: "51234567",
+      address1: "Test address",
+      address2: "",
+      city: "Hong Kong",
+      postalCode: "000000",
+    }
+
+    expect(buildContactPayload(contact, "delivery")).toEqual({
+      email: "guest@fotomax.test",
+      firstName: "Foto",
+      lastName: "Max",
+      phone: "51234567",
+      address: {
+        address1: "Test address",
+        address2: null,
+        city: "Hong Kong",
+        postalCode: "000000",
+        countryCode: "hk",
+      },
+    })
+    expect(buildContactPayload(contact, "pickup")).toEqual({
+      email: "guest@fotomax.test",
+      firstName: "Foto",
+      lastName: "Max",
+      phone: "51234567",
+      address: null,
+    })
+  })
   it("renders a compact contact step with an honest total", () => {
     const markup = renderToStaticMarkup(<CheckoutFlow locale="en" initialCheckout={checkout} />)
     expect(markup).toContain('data-checkout-flow="contact"')

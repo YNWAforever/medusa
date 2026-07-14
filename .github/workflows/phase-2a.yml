@@ -75,7 +75,7 @@ jobs:
           trap cleanup EXIT
           node --input-type=module -e 'import { waitForHealthyBackend } from "./scripts/staging-health.mjs"; await waitForHealthyBackend(process.env.MEDUSA_BACKEND_URL)'
           npm run check
-      - run: npm run cloudflare:container:build
+      - run: npm run cloudflare:container:build:ci
       - run: npm exec --workspace @fotomax/cloudflare wrangler -- deploy --dry-run
       - run: npm run test:integration --workspace @fotomax/medusa
       - run: npx playwright install --with-deps chromium

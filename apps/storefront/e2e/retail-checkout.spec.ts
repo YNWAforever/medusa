@@ -50,12 +50,15 @@ async function addRetailItem(page: Page, locale: Locale) {
   const addButton = page.getByRole("button", { name: copy[locale].add }).first()
   await expect(addButton).toBeEnabled()
   await addButton.click()
-  await expect(page.getByRole("status")).toContainText(locale === "en" ? "Added to cart" : "已加入購物車")
+  await expect(page.locator("main .cart-command-status")).toContainText(
+    locale === "en" ? "Added to cart" : "已加入購物車",
+  )
 }
 
 async function openCheckout(page: Page, locale: Locale) {
   await page.getByRole("button", { name: copy[locale].cart }).first().click()
   await page.getByRole("link", { name: copy[locale].viewCart }).click()
+  await page.locator("#cart-collapse-button").click()
   await page.getByRole("link", { name: copy[locale].checkout }).click()
   await expect(page.locator("[data-checkout-flow]")).toHaveAttribute("data-checkout-flow", "contact")
 }
@@ -65,7 +68,7 @@ async function fillContact(page: Page, locale: Locale, email: string) {
   await page.getByLabel(locale === "en" ? "Last name" : "姓氏").fill("Tester")
   await page.getByLabel(locale === "en" ? "Email" : "電郵地址").fill(email)
   await page.getByLabel(locale === "en" ? "Phone" : "電話").fill("51234567")
-  await page.getByLabel(locale === "en" ? "Address" : "地址").fill("Test address")
+  await page.getByLabel(locale === "en" ? "Address" : "地址", { exact: true }).fill("Test address")
   await page.getByLabel(locale === "en" ? "City" : "地區").fill("Hong Kong")
   await page.getByLabel(locale === "en" ? "Postal code" : "郵政編碼").fill("000000")
 }
@@ -119,38 +122,47 @@ test.describe("Fotomax retail storefront", () => {
     }
   })
 
-  test("persists the retail cart across a reload", async ({ page }) => {
-    for (const locale of locales) {
+  for (const locale of locales) {
+    test(`persists the retail cart across a reload (${locale})`, async ({ page }) => {
       await addRetailItem(page, locale)
       await page.reload()
-      await expect(page.getByRole("button", { name: copy[locale].cart }).first()).toBeVisible()
-      await page.getByRole("button", { name: copy[locale].cart }).first().click()
-      await expect(page.getByRole("complementary", { name: locale === "en" ? "Cart" : "購物車" })).toBeVisible()
-    }
-  })
+      const cart = page.locator(".cart-drawer")
+      if (!(await cart.isVisible())) {
+        await page.getByRole("button", { name: copy[locale].cart }).first().click()
+      }
+      await expect(cart).toContainText("Instax Mini Film Pack")
+    })
 
-  test("completes a guest delivery checkout and shows confirmation", async ({ page }) => {
-    for (const locale of locales) {
+    test(`completes a guest delivery checkout and shows confirmation (${locale})`, async ({ page }) => {
       await addRetailItem(page, locale)
       await openCheckout(page, locale)
-      await completeDelivery(page, locale, `guest-${locale}-${Date.now()}@fotomax.test`)
-    }
-  })
+      await completeDelivery(
+        page,
+        locale,
+        `guest-${locale}-${Date.now()}@fotomax.test`,
+      )
+    })
 
-  test("completes guest pickup at a compatible staging branch", async ({ page }) => {
-    for (const locale of locales) {
+    test(`completes guest pickup at a compatible staging branch (${locale})`, async ({ page }) => {
       await addRetailItem(page, locale)
       await openCheckout(page, locale)
       await fillContact(page, locale, `pickup-${locale}-${Date.now()}@fotomax.test`)
       await page.getByRole("button", { name: copy[locale].continueFulfillment }).click()
+      await expect(page.locator("[data-checkout-flow]")).toHaveAttribute(
+        "data-checkout-flow",
+        "fulfillment",
+      )
       await page.getByRole("button", { name: copy[locale].pickup }).click()
       const pickupOption = page.locator('input[type="radio"]:not(:disabled)').first()
       await expect(pickupOption).toBeEnabled()
       await pickupOption.check()
       await page.getByRole("button", { name: copy[locale].continueReview }).click()
-      await expect(page.locator("[data-checkout-flow]")).toHaveAttribute("data-checkout-flow", "review")
-    }
-  })
+      await expect(page.locator("[data-checkout-flow]")).toHaveAttribute(
+        "data-checkout-flow",
+        "review",
+      )
+    })
+  }
 
   test("covers account registration, checkout, logout, login, and order history", async ({ page }) => {
     const email = `account-${Date.now()}@fotomax.test`

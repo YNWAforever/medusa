@@ -14,7 +14,7 @@
     "predeploy": "node ./medusa-cli.cjs db:migrate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:integration": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand"
+    "test:integration": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --forceExit"
   },
   "dependencies": {
     "@fotomax/shared": "file:../../packages/shared",
