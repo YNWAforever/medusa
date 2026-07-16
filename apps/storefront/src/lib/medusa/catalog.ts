@@ -39,6 +39,7 @@ type SdkStoreRegion = Awaited<ReturnType<Medusa["store"]["region"]["list"]>>["re
 type SdkStoreCollection = Awaited<ReturnType<Medusa["store"]["collection"]["list"]>>["collections"][number]
 type SdkStoreProduct = Awaited<ReturnType<Medusa["store"]["product"]["list"]>>["products"][number]
 type SdkStoreProductVariant = NonNullable<SdkStoreProduct["variants"]>[number]
+type SdkStoreProductVariantOption = NonNullable<SdkStoreProductVariant["options"]>[number]
 
 interface CatalogPage<T> {
   count: number
@@ -101,7 +102,7 @@ function projectStoreProduct(product: SdkStoreProduct): MedusaStoreProduct {
       calculated_price: variant.calculated_price
         ? { calculated_amount: variant.calculated_price.calculated_amount }
         : variant.calculated_price,
-      options: variant.options?.map((option) => ({
+      options: variant.options?.map((option: SdkStoreProductVariantOption) => ({
         value: option.value,
         option: option.option
           ? {
