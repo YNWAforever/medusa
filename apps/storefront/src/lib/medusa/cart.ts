@@ -47,6 +47,12 @@ export interface MedusaCart {
   email?: string | null
 }
 
+interface MedusaRegion {
+  id: string
+  currency_code: string
+  countries?: Array<{ iso_2?: string | null }> | null
+}
+
 const cartFields = "id,currency_code,email,subtotal,shipping_total,tax_total,total,*items,*items.variant,*items.variant.product"
 
 export class CartError extends Error {
@@ -189,7 +195,8 @@ export function createCartAdapter(sdk: CartSdk) {
     },
 
     async createWithLine(input: AddCartItemInput): Promise<CartView> {
-      const { regions } = await sdk.store.region.list({ fields: "id,currency_code,*countries" })
+      const response = await sdk.store.region.list({ fields: "id,currency_code,*countries" })
+      const regions = response.regions as MedusaRegion[]
       const region = regions.find((candidate) =>
         candidate.currency_code.toLowerCase() === "hkd"
         && candidate.countries?.some((country) => country.iso_2?.toLowerCase() === "hk"),

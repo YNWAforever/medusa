@@ -27,10 +27,9 @@ export class FotomaxMedusaContainer extends Container {
     })
   }
 
-  override onError(error: unknown): void {
-    console.error("medusa_container_error", {
-      error_type: error instanceof Error ? error.name : typeof error,
-    })
+  override onError(error: unknown): never {
+    console.error("medusa_container_error", error)
+    throw error
   }
 }
 

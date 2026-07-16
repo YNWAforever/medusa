@@ -47,3 +47,29 @@ Desktop browser result:
 Mobile browser result:
 Credential rotation confirmed:
 ```
+
+## Live staging completion
+
+Verified on 2026-07-16 against the canonical production storefront and the
+Cloudflare staging backend.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Cloudflare Worker | Passed | `https://fotomax-medusa-staging.laichiwillyjp.workers.dev`; version `dc9b8011-ec0c-45c3-8978-cf5eeb68bd32` |
+| Cloudflare container | Passed | Application `a0379f22-8431-46b1-9e07-bd3b960a4c40` active with one live instance; image digest `sha256:f488c98c6dad60b40c95c86d01c54e3298cad79fe42d54e4166f0e0f26d13d91` |
+| Backend health | Passed | Public `GET /health` returned `200 OK` after deployment |
+| Vercel production | Passed | Deployment `dpl_13Uo2BeHKT2kfkEwWvq2qdxCqdrF` ready and aliased to `https://fotomax-storefront.vercel.app` |
+| Locale routes | Passed | `/en` and `/zh-HK` both returned HTTP 200 |
+| Transaction verifier | Passed | Created order `order_01KXMSVBNH4M22EWQ5CQB9N6VE`, display ID `1`, total `118` |
+| Storefront runtime cart | Passed | `/api/cart/items` created a one-item HKD cart and set the cart cookie through the Vercel runtime |
+| Desktop browser | Passed | Chromium at 1440x900: HTTP 200, no page/console errors, `scrollWidth` equals `clientWidth` (1440) |
+| Mobile browser | Passed | Chromium at 390x844: HTTP 200, no page/console errors, `scrollWidth` equals `clientWidth` (390) |
+
+Visual evidence:
+
+- `docs/verification/screenshots/fotomax-phase-2a-desktop.png`
+- `docs/verification/screenshots/fotomax-phase-2a-mobile.png`
+
+Credential rotation remains required for the Cloudflare token and other key
+material pasted into the task conversation. Rotation cannot be verified from
+the repository.
