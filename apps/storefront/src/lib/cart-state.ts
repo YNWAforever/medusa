@@ -1,22 +1,42 @@
-import type { Product } from "@fotomax/shared"
+import type { CartLineView, CartView } from "./medusa/contracts"
 
-export interface CartItem {
-  product: Product
-  quantity: number
+export type CartItem = CartLineView
+
+interface VersionRef {
+  current: number
 }
 
-export function addCartItem(items: CartItem[], product: Product): CartItem[] {
-  const existing = items.find((item) => item.product.handle === product.handle)
+export function createCartRefreshGuard(version: VersionRef = { current: 0 }) {
+  let mutationActive = false
 
-  if (!existing) {
-    return [...items, { product, quantity: 1 }]
+  return {
+    capture: () => version.current,
+    invalidate() {
+      version.current += 1
+    },
+    beginMutation() {
+      version.current += 1
+      mutationActive = true
+    },
+    endMutation() {
+      mutationActive = false
+    },
+    canRefresh: () => !mutationActive,
+    isCurrent: (candidate: number) => candidate === version.current,
   }
-
-  return items.map((item) =>
-    item.product.handle === product.handle ? { ...item, quantity: item.quantity + 1 } : item,
-  )
 }
 
-export function getCartSubtotal(items: CartItem[]): number {
-  return items.reduce((sum, item) => sum + item.product.priceCents * item.quantity, 0)
+export function getCartSubtotal(items: readonly CartLineView[]): number {
+  return items.reduce((total, item) => total + item.subtotal.amount, 0)
+}
+
+export function groupCartLines(items: readonly CartLineView[]): Record<CartLineView["kind"], CartLineView[]> {
+  return {
+    retail: items.filter((item) => item.kind === "retail"),
+    photo_print: items.filter((item) => item.kind === "photo_print"),
+  }
+}
+
+export function cartItemCount(cart: CartView): number {
+  return cart.items.reduce((total, item) => total + item.quantity, 0)
 }

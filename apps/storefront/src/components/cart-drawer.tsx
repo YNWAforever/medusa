@@ -1,9 +1,11 @@
-"use client"
+﻿"use client"
 
 import Link from "next/link"
 import { ChevronDown, ShoppingBag, Trash2 } from "lucide-react"
 import React, { useEffect, useRef, useState } from "react"
-import { formatPrice, localize, t, type Locale } from "@fotomax/shared"
+import { t } from "@fotomax/shared"
+import { formatCatalogMoney } from "../lib/catalog-filters"
+import type { Locale } from "../lib/medusa/contracts"
 import { getCartSubtotal } from "../lib/cart-state"
 import { localeHref } from "../lib/locales"
 import { useCart } from "./cart-provider"
@@ -11,7 +13,7 @@ import { useCart } from "./cart-provider"
 type FocusTarget = "reopen" | "collapse" | "clear-trigger" | "header-cart" | null
 
 export function CartDrawer({ locale }: { locale: Locale }) {
-  const { items, isDrawerOpen, clearCart, closeCart, openCart } = useCart()
+  const { items, isDrawerOpen, clearCart, closeCart, openCart, isLoading, mutationError } = useCart()
   const [isConfirmingClear, setIsConfirmingClear] = useState(false)
   const [focusTarget, setFocusTarget] = useState<FocusTarget>(null)
   const clearTriggerRef = useRef<HTMLButtonElement>(null)
@@ -141,19 +143,20 @@ export function CartDrawer({ locale }: { locale: Locale }) {
           </div>
         </div>
       ) : null}
+      <p className="cart-command-status" role="status" aria-live="polite">{isLoading ? (locale === "zh-HK" ? "正在載入購物車" : "Loading cart") : mutationError ? (locale === "zh-HK" ? "未能更新購物車，請重試。" : "Unable to update your cart. Please try again.") : ""}</p>
       <div className="cart-lines">
         {items.map((item) => (
-          <div className="cart-line" key={item.product.handle}>
-            <span>{localize(item.product.name, locale)}</span>
+          <div className="cart-line" key={item.id}>
+            <span>{item.title}</span>
             <strong className="cart-line-quantity">
-              {item.quantity} x {formatPrice(item.product.priceCents, locale)}
+              {item.quantity} x {formatCatalogMoney(item.unitPrice, locale)}
             </strong>
           </div>
         ))}
       </div>
       <div className="cart-total">
         <span>{locale === "zh-HK" ? "小計" : "Subtotal"}</span>
-        <strong>{formatPrice(getCartSubtotal(items), locale)}</strong>
+        <strong>{formatCatalogMoney({ amount: getCartSubtotal(items), currencyCode: "hkd" }, locale)}</strong>
       </div>
       <Link className="button primary wide" href={localeHref(locale, "/cart")}>
         {locale === "zh-HK" ? "查看購物車" : "View cart"}

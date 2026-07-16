@@ -54,7 +54,7 @@ describe("Fotomax Medusa CLI launcher", () => {
       dependencies?: Record<string, string>
     }
 
-    expect(manifest.dependencies?.["@medusajs/core-flows"]).toBe("^2.17.2")
+    expect(manifest.dependencies?.["@medusajs/core-flows"]).toBe("2.17.2")
   })
 
   it("keeps Medusa UI path assertions separator portable", () => {

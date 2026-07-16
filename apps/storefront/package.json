@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@fotomax/shared": "file:../../packages/shared",
+    "@medusajs/js-sdk": "2.17.2",
+    "server-only": "0.0.1",
     "lucide-react": "^0.475.0",
     "next": "^16.2.10",
     "react": "^19.2.4",

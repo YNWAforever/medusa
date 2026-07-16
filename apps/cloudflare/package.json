@@ -1,0 +1,27 @@
+{
+  "name": "@fotomax/cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "whoami": "wrangler whoami",
+    "secret:put": "wrangler secret put",
+    "container:build": "wrangler containers build ../.. --tag fotomax-medusa:ci",
+    "container:build:ci": "docker build --tag fotomax-medusa:ci ../..",
+    "container:list": "wrangler containers list"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260713.1",
+    "typescript": "5.8.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.110.0"
+  }
+}

@@ -2,24 +2,28 @@ import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { formatPrice, getProduct, getServiceEntry, t, type Locale } from "@fotomax/shared"
+import { t } from "@fotomax/shared"
+import type { ServiceEntry } from "../content/services"
+import { serviceEntries } from "../content/services"
+import type { CartView, CatalogCategory, CatalogProduct, Locale } from "../lib/medusa/contracts"
+import { formatCatalogMoney, getProductView } from "../lib/catalog-filters"
 import RootNotFound from "../../app/global-not-found"
 import CartPage from "../../app/[locale]/cart/page"
 import ServiceRoute from "../../app/[locale]/services/[handle]/page"
-import { getProductView } from "../lib/catalog-view"
 import { AddToCartButton } from "./add-to-cart-button"
 import { CartDrawer } from "./cart-drawer"
 import { CartProvider } from "./cart-provider"
 import { ProductDetail } from "./product-detail"
 import { SiteHeader } from "./site-header"
 
-const product = getProduct("classic-4r-photo-print")!
-const productView = getProductView(product.handle)!
-const service = getServiceEntry("upload-photo-print")!
-
+const product: CatalogProduct = { id: "prod_print", handle: "classic-4r-photo-print", title: "Classic 4R Photo Print", description: "Standard-size prints.", thumbnail: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1200&q=80", collectionHandle: "photo-print", badge: "Popular service", commerceMode: "retail", variants: [{ id: "variant_print", title: "Default", sku: "PRINT", options: [{ name: "Paper finish", value: "Glossy" }], price: { amount: 280, currencyCode: "hkd" }, inventory: { managed: true, available: true, quantity: 8 } }] }
+const category: CatalogCategory = { id: "pcol_print", handle: "photo-print", title: "Photo Print", summary: "Fast prints.", products: [product] }
+const productView = getProductView([category], product.handle)!
+const service: ServiceEntry = serviceEntries[0]!
+const cartFor = (quantity: number): CartView => ({ id: quantity === 0 ? null : "cart_123", currencyCode: "hkd", items: quantity === 0 ? [] : [{ id: "line_123", kind: "retail", variantId: product.variants[0]!.id, title: product.title, thumbnail: product.thumbnail, quantity, unitPrice: product.variants[0]!.price, subtotal: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, photoJobVersionId: null, photoCount: null }], itemCount: quantity, subtotal: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, shippingTotal: { amount: 0, currencyCode: "hkd" }, taxTotal: { amount: 0, currencyCode: "hkd" }, total: { amount: product.variants[0]!.price.amount * quantity, currencyCode: "hkd" }, email: null })
 function renderDrawer(locale: Locale, quantity = 0) {
   return renderToStaticMarkup(
-    <CartProvider initialItems={quantity === 0 ? [] : [{ product, quantity }]}>
+    <CartProvider initialCart={cartFor(quantity)}>
       <CartDrawer locale={locale} />
     </CartProvider>,
   )
@@ -27,7 +31,7 @@ function renderDrawer(locale: Locale, quantity = 0) {
 
 function renderAddButton(locale: Locale, quantity = 0) {
   return renderToStaticMarkup(
-    <CartProvider initialItems={quantity === 0 ? [] : [{ product, quantity }]}>
+    <CartProvider initialCart={cartFor(quantity)}>
       <AddToCartButton product={product} locale={locale} />
     </CartProvider>,
   )
@@ -48,9 +52,9 @@ describe("Fotomax cart and service composition", () => {
 
       expect(markup).toContain(`<aside class="cart-drawer" aria-label="${cart}">`)
       expect(markup).toContain('class="cart-line-quantity">2 x')
-      expect(markup).toContain(formatPrice(product.priceCents, locale))
+      expect(markup).toContain(formatCatalogMoney(product.variants[0].price, locale))
       expect(markup).toContain(`${subtotal}</span>`)
-      expect(markup).toContain(formatPrice(product.priceCents * 2, locale))
+      expect(markup).toContain(formatCatalogMoney({ amount: product.variants[0].price.amount * 2, currencyCode: "hkd" }, locale))
       expect(markup).toContain(`aria-label="${clearOptions}"`)
       expect(markup).toContain('aria-controls="cart-clear-confirmation"')
       expect(markup).toContain('aria-expanded="false"')
@@ -103,6 +107,20 @@ describe("Fotomax cart and service composition", () => {
     expect(detail).not.toContain(locale === "zh-HK" ? "網上訂購即將推出</p>" : "Online ordering coming soon</p>")
   })
 
+  it.each([
+    ["en", "Online ordering unavailable"],
+    ["zh-HK", "暫時未能網上訂購"],
+  ] as const)("localizes unavailable ordering in %s", (locale, label) => {
+    const unavailableProduct: CatalogProduct = { ...product, commerceMode: "photo_print" }
+    const markup = renderToStaticMarkup(
+      <CartProvider initialCart={cartFor(0)}>
+        <AddToCartButton product={unavailableProduct} locale={locale} />
+      </CartProvider>,
+    )
+    expect(markup).toContain("disabled")
+    expect(markup).toContain(">" + label + "</span>")
+  })
+
   it("uses explicit clear confirmation and provider-owned drawer visibility contracts", () => {
     const drawerSource = readFileSync(new URL("./cart-drawer.tsx", import.meta.url), "utf8")
     const providerSource = readFileSync(new URL("./cart-provider.tsx", import.meta.url), "utf8")
@@ -123,13 +141,25 @@ describe("Fotomax cart and service composition", () => {
 
     expect(providerSource).toContain("isDrawerOpen")
     expect(providerSource).toContain("setIsDrawerOpen(true)")
-    expect(providerSource).toMatch(/addItem\(product\)\s*\{[\s\S]*?setIsDrawerOpen\(true\)\s*\}/)
+    expect(providerSource).toContain("async addVariant")
+    expect(providerSource).toContain("if (mutationLock.current)")
+    expect(providerSource).toContain("mutationLock.current = true")
+    expect(providerSource).toContain("refreshGuard.beginMutation()")
+    expect(providerSource).toContain("refreshGuard.endMutation()")
+    expect(providerSource).toContain("if (!refreshGuard.canRefresh())")
+    expect(providerSource).toContain("refreshGuard.isCurrent(refreshVersion)")
+    expect(providerSource).toContain('error.code === "cart_expired"')
+    expect(providerSource).toContain("setCart(emptyCart)")
+    expect(providerSource.match(/await cartRequest\(path, init\)/g)).toHaveLength(2)
+    expect(providerSource).toContain('await mutate("/api/cart/items"')
     expect(providerSource).toContain("openCart")
     expect(providerSource).toContain("closeCart")
 
     expect(addButtonSource).not.toContain("useState")
     expect(addButtonSource).not.toContain("setAdded")
     expect(addButtonSource).toContain("cart?.items.find")
+    expect(addButtonSource).toContain("cart.isMutating")
+    expect(addButtonSource).toContain("未能更新購物車，請重試。")
   })
 
   it("uses render-driven focus restoration for every conditional cart control", () => {
@@ -161,9 +191,9 @@ describe("Fotomax cart and service composition", () => {
   })
 
   it.each([
-    ["en", "Coming soon", "Continue shopping"],
-    ["zh-HK", "即將推出", "繼續選購"],
-  ] as const)("renders honest cart and service destinations in %s", async (locale, comingSoon, continueShopping) => {
+    ["en", "Coming soon", "Go to checkout"],
+    ["zh-HK", "即將推出", "前往結帳"],
+  ] as const)("renders honest cart and service destinations in %s", async (locale, comingSoon, checkoutLabel) => {
     const cartElement = await CartPage({ params: Promise.resolve({ locale }) })
     const serviceElement = await ServiceRoute({
       params: Promise.resolve({ locale, handle: service.handle }),
@@ -174,14 +204,19 @@ describe("Fotomax cart and service composition", () => {
     for (const markup of [cart, serviceMarkup]) {
       expect(markup.match(/<h1>/g)).toHaveLength(1)
       expect(markup).toContain('<main id="main-content"')
-      expect(markup).toContain(comingSoon)
     }
 
-    expect(cart).toContain(`href="/${locale}"`)
-    expect(cart).toContain(`>${continueShopping}</a>`)
-    expect(serviceMarkup).toContain(`href="/${locale}/categories/${service.categoryHandle}"`)
+    expect(serviceMarkup).toContain(comingSoon)
+    expect(cart).toContain(
+      locale === "zh-HK"
+        ? "購物車內容會在你繼續瀏覽時保留。"
+        : "Your cart stays saved while you continue browsing.",
+    )
+    expect(cart).toContain(locale === "zh-HK" ? "準備結帳" : "Ready to checkout")
+    expect(cart).toContain('href="/' + locale + '/checkout"')
+    expect(cart).toContain('>' + checkoutLabel + '</a>')
+    expect(serviceMarkup).toContain('href="/' + locale + '/categories/' + service.categoryHandle + '"')
   })
-
   it("keeps customer copy honest and wires cart state at the locale boundary", async () => {
     const englishCart = renderToStaticMarkup(
       await CartPage({ params: Promise.resolve({ locale: "en" }) }),

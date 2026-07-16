@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "fotomax-medusa-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "containers": [
+    {
+      "class_name": "FotomaxMedusaContainer",
+      "image": "../../Dockerfile",
+      "max_instances": 1,
+      "instance_type": "basic",
+      "constraints": {
+        "regions": ["APAC"]
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FOTOMAX_MEDUSA",
+        "class_name": "FotomaxMedusaContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FotomaxMedusaContainer"]
+    }
+  ],
+  "dev": {
+    "port": 8787,
+    "enable_containers": false
+  }
+}

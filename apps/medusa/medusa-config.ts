@@ -1,12 +1,14 @@
 import { defineConfig, loadEnv } from "@medusajs/framework/utils"
-import { resolveMedusaRuntimeEnv } from "./src/runtime-env"
+import { buildInfrastructureModules } from "./src/infrastructure-modules"
+import { loadRuntimeEnv } from "./src/runtime-env"
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd())
-const runtimeEnv = resolveMedusaRuntimeEnv(process.env)
+const runtimeEnv = loadRuntimeEnv(process.env)
 
 module.exports = defineConfig({
   projectConfig: {
-    databaseUrl: process.env.DATABASE_URL,
+    databaseUrl: runtimeEnv.databaseUrl,
+    workerMode: runtimeEnv.workerMode,
     http: {
       storeCors: runtimeEnv.storeCors,
       adminCors: runtimeEnv.adminCors,
@@ -15,4 +17,11 @@ module.exports = defineConfig({
       cookieSecret: runtimeEnv.cookieSecret,
     },
   },
+  admin: {
+    disable: runtimeEnv.disableAdmin,
+  },
+  modules: [
+    ...buildInfrastructureModules(runtimeEnv),
+    { resolve: "./src/modules/branch-capability" },
+  ],
 })

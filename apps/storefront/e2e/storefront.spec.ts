@@ -36,7 +36,7 @@ test("homepage exposes bilingual commerce navigation", async ({ page }) => {
 
 test("category filters persist in the URL and recover from an empty state", async ({ page }) => {
   await page.goto("/en/categories/photo-print")
-  await expect(page.getByRole("heading", { name: /Turn camera-roll moments/i })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "Photo Print" })).toBeVisible()
   await expect(page.getByRole("link", { name: "Classic 4R Photo Print", exact: true })).toBeVisible()
 
   await page.getByRole("button", { name: "Available" }).click()
@@ -45,15 +45,9 @@ test("category filters persist in the URL and recover from an empty state", asyn
   await expect(page.getByRole("link", { name: "Classic 4R Photo Print", exact: true })).toBeVisible()
 
   await page.goto("/en/categories/personalized-gifts")
-  await expect(page.getByRole("link", { name: "Personalized Photo Mug", exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Featured" }).click()
-  await expect(page).toHaveURL(/filter=featured/)
-  await expect(page.getByRole("button", { name: "Featured" })).toHaveAttribute("aria-pressed", "true")
-  await expect(page.getByText("No products match this filter yet.")).toBeVisible()
-
-  await page.getByRole("button", { name: "Show all" }).click()
-  await expect(page).not.toHaveURL(/filter=/)
-  await expect(page.getByRole("link", { name: "Personalized Photo Mug", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "Personalized Gifts" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "No products yet" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Browse categories" })).toHaveAttribute("href", "/en")
 })
 
 test("product cart actions announce quantity and restore focus", async ({ page }) => {
@@ -64,11 +58,12 @@ test("product cart actions announce quantity and restore focus", async ({ page }
     }
   })
 
-  await page.goto("/en/products/classic-4r-photo-print")
-  await expect(page.getByRole("heading", { name: "Classic 4R Photo Print" })).toBeVisible()
+  await page.goto("/en/products/instax-mini-film-pack")
+  await expect(page.getByRole("heading", { name: "Instax Mini Film Pack" })).toBeVisible()
 
   const addButton = page.getByRole("button", { name: "Add to cart" })
-  const status = page.getByRole("status")
+  const status = page.locator("main .cart-command-status")
+  const cart = page.getByRole("complementary", { name: "Cart" })
   await expect(addButton).toBeVisible()
   await expect(status).toBeEmpty()
 
@@ -76,15 +71,14 @@ test("product cart actions announce quantity and restore focus", async ({ page }
   await expect(page.getByRole("button", { name: "Add another" })).toBeVisible()
   await expect(status).toHaveText("Added to cart, 1 item")
   await expect(page.getByRole("button", { name: "Open cart, 1 item" })).toBeVisible()
+
   await page.getByRole("button", { name: "Add another" }).click()
   await expect(status).toHaveText("Added to cart, 2 items")
 
   const reopen = page.getByRole("button", { name: "Open cart, 2 items" })
   await reopen.click()
   await expect(page.getByRole("button", { name: "Collapse cart" })).toBeFocused()
-
-  const cart = page.getByRole("complementary", { name: "Cart" })
-  await expect(cart).toContainText("Classic 4R Photo Print")
+  await expect(cart).toContainText("Instax Mini Film Pack")
   await expect(cart).toContainText("2 x")
 
   await page.getByRole("button", { name: "Collapse cart" }).click()
@@ -99,17 +93,20 @@ test("product cart actions announce quantity and restore focus", async ({ page }
   await clearOptions.click()
   await page.getByRole("button", { name: "Clear cart", exact: true }).click()
   await expect(page.locator("#header-cart-link")).toBeFocused()
-  await expect(page.getByRole("complementary", { name: "Cart" })).toHaveCount(0)
+  await expect(cart).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeVisible()
   await expect(status).toBeEmpty()
 
   await addButton.click()
   await expect(status).toHaveText("Added to cart, 1 item")
+  await expect(cart).toBeVisible()
+  await page.locator("#cart-collapse-button").click()
   await expect(page.getByRole("button", { name: "Open cart, 1 item" })).toBeVisible()
+
   await page.getByRole("button", { name: "Add another" }).click()
   await expect(status).toHaveText("Added to cart, 2 items")
   await expect(page.getByRole("button", { name: "Open cart, 2 items" })).toBeVisible()
-  await expect(page.getByRole("complementary", { name: "Cart" })).toHaveCount(0)
+  await expect(cart).toHaveCount(0)
   expect(performanceWarnings).toEqual([])
 })
 
@@ -163,8 +160,8 @@ test("unknown nested locale routes keep nearest localized recovery", async ({ pa
   }
 })
 
-test("cart route explains the upcoming checkout flow", async ({ page }) => {
+test("cart route opens the live checkout flow", async ({ page }) => {
   await page.goto("/en/cart")
-  await expect(page.getByRole("heading", { name: "Your cart is ready" })).toBeVisible()
-  await expect(page.getByText(/checkout, payment, and order confirmation are coming soon/i)).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Ready to checkout" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Go to checkout" })).toHaveAttribute("href", "/en/checkout")
 })

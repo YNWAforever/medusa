@@ -1,0 +1,82 @@
+name: Fotomax Phase 2A
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, codex/fotomax-storefront]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fotomax
+          POSTGRES_USER: fotomax
+          POSTGRES_PASSWORD: fotomax_local_only
+        ports: [5432:5432]
+        options: >-
+          --health-cmd="pg_isready -U fotomax -d fotomax"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://fotomax:fotomax_local_only@localhost:5432/fotomax
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USERNAME: fotomax
+      DB_PASSWORD: fotomax_local_only
+      REDIS_URL: redis://localhost:6379
+      MEDUSA_WORKER_MODE: shared
+      STORE_CORS: http://127.0.0.1:3100,http://localhost:9000
+      ADMIN_CORS: http://localhost:9000
+      AUTH_CORS: http://127.0.0.1:3100,http://localhost:9000
+      JWT_SECRET: fotomax-ci-jwt-secret
+      COOKIE_SECRET: fotomax-ci-cookie-secret
+      MEDUSA_BACKEND_URL: http://localhost:9000
+      STOREFRONT_SESSION_SECRET: fotomax-ci-session-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run seed:medusa
+      - run: npm run seed:medusa
+      - run: npm run ci:export-publishable-key --workspace @fotomax/medusa
+      - name: Run canonical checks with live Medusa
+        shell: bash
+        run: |
+          npm run build --workspace @fotomax/medusa
+          setsid bash -c 'exec env NODE_ENV=development npm run dev --workspace @fotomax/medusa' > "$RUNNER_TEMP/medusa.log" 2>&1 &
+          medusa_pid=$!
+          cleanup() {
+            status=$?
+            trap - EXIT
+            kill -- -"$medusa_pid" 2>/dev/null || true
+            wait "$medusa_pid" 2>/dev/null || true
+            if [ "$status" -ne 0 ]; then
+              tail -n 200 "$RUNNER_TEMP/medusa.log"
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          node --input-type=module -e 'import { waitForHealthyBackend } from "./scripts/staging-health.mjs"; await waitForHealthyBackend(process.env.MEDUSA_BACKEND_URL)'
+          npm run check
+      - run: npm run cloudflare:container:build:ci
+      - run: npm exec --workspace @fotomax/cloudflare wrangler -- deploy --dry-run
+      - run: npm run test:integration --workspace @fotomax/medusa
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e --workspace @fotomax/storefront
