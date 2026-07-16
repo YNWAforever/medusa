@@ -38,6 +38,7 @@ type StoreProductListQuery = NonNullable<Parameters<Medusa["store"]["product"]["
 type SdkStoreRegion = Awaited<ReturnType<Medusa["store"]["region"]["list"]>>["regions"][number]
 type SdkStoreCollection = Awaited<ReturnType<Medusa["store"]["collection"]["list"]>>["collections"][number]
 type SdkStoreProduct = Awaited<ReturnType<Medusa["store"]["product"]["list"]>>["products"][number]
+type SdkStoreProductVariant = NonNullable<SdkStoreProduct["variants"]>[number]
 
 interface CatalogPage<T> {
   count: number
@@ -90,7 +91,7 @@ function projectStoreProduct(product: SdkStoreProduct): MedusaStoreProduct {
       ? { handle: product.collection.handle }
       : product.collection,
     metadata: normalizeMetadata(product.metadata),
-    variants: product.variants?.map((variant) => ({
+    variants: product.variants?.map((variant: SdkStoreProductVariant) => ({
       id: variant.id,
       title: variant.title ?? "",
       sku: variant.sku,
