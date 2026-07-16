@@ -14,11 +14,12 @@
   "dependencies": {
     "@fotomax/shared": "file:../../packages/shared",
     "@medusajs/js-sdk": "2.17.2",
-    "server-only": "0.0.1",
+    "@medusajs/types": "2.17.2",
     "lucide-react": "^0.475.0",
     "next": "^16.2.10",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "server-only": "0.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.0",
