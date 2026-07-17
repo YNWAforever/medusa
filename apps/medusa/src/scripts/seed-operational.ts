@@ -1184,7 +1184,8 @@ export function createMedusaOperationalOperations(
           input: { items },
         })
       ).result
-      return result.map((item) => ({
+      type CreatedInventoryItem = (typeof result)[number]
+      return result.map((item: CreatedInventoryItem) => ({
         id: item.id,
         sku: item.sku,
       }))
