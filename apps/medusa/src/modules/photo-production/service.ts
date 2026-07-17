@@ -21,15 +21,33 @@ export function assertExactlyOnePhotoJobOwner({
   }
 }
 
-class PhotoProductionModuleService extends MedusaService({
+const PhotoProductionModuleServiceBase = MedusaService({
   PhotoJob,
   PhotoAsset,
   PhotoUploadSession,
-}) {
+})
+
+type GeneratedCreatePhotoJobs = InstanceType<typeof PhotoProductionModuleServiceBase>["createPhotoJobs"]
+
+class PhotoProductionModuleService extends PhotoProductionModuleServiceBase {
   async createPhotoJob(data: CreatePhotoJobInput) {
     assertExactlyOnePhotoJobOwner(data)
     return this.createPhotoJobs(data)
   }
+
+  createPhotoJobs = (async (
+    data: CreatePhotoJobInput | CreatePhotoJobInput[],
+    ...rest: unknown[]
+  ) => {
+    for (const photoJob of Array.isArray(data) ? data : [data]) {
+      assertExactlyOnePhotoJobOwner(photoJob)
+    }
+
+    const createPhotoJobs = super.createPhotoJobs as (
+      ...args: [CreatePhotoJobInput | CreatePhotoJobInput[], ...unknown[]]
+    ) => unknown
+    return createPhotoJobs.call(this, data, ...rest)
+  }) as GeneratedCreatePhotoJobs
 }
 
 export default PhotoProductionModuleService
