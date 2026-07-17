@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from "@medusajs/framework/utils"
+﻿import { defineConfig, loadEnv } from "@medusajs/framework/utils"
 import { buildInfrastructureModules } from "./src/infrastructure-modules"
 import { loadRuntimeEnv } from "./src/runtime-env"
 
@@ -23,5 +23,6 @@ module.exports = defineConfig({
   modules: [
     ...buildInfrastructureModules(runtimeEnv),
     { resolve: "./src/modules/branch-capability" },
+    { resolve: "./src/modules/photo-production" },
   ],
 })
