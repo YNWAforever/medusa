@@ -77,4 +77,16 @@ describe("PhotoProductionModuleService photo job creation", () => {
     expect(createPhotoJobs).toHaveBeenCalledOnce()
     expect(createPhotoJobs).toHaveBeenCalledWith(input)
   })
+
+  it("forwards the generated create context for a single photo job", async () => {
+    const { createPhotoJobs, service } = createServiceWithGeneratedCreateSpy()
+    const input = { guest_owner_hash: "guest-hash" }
+    const sharedContext = { transactionId: "tx_123", source: "upload" }
+
+    await expect(service.createPhotoJob(input, sharedContext)).resolves.toEqual([
+      { id: "photojob_123" },
+    ])
+    expect(createPhotoJobs).toHaveBeenCalledOnce()
+    expect(createPhotoJobs).toHaveBeenCalledWith(input, sharedContext)
+  })
 })

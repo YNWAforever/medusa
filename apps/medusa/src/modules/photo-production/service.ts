@@ -30,9 +30,14 @@ const PhotoProductionModuleServiceBase = MedusaService({
 type GeneratedCreatePhotoJobs = InstanceType<typeof PhotoProductionModuleServiceBase>["createPhotoJobs"]
 
 class PhotoProductionModuleService extends PhotoProductionModuleServiceBase {
-  async createPhotoJob(data: CreatePhotoJobInput) {
+  async createPhotoJob(
+    data: CreatePhotoJobInput,
+    ...rest: Parameters<GeneratedCreatePhotoJobs> extends [unknown, ...infer TrailingArgs]
+      ? TrailingArgs
+      : never
+  ) {
     assertExactlyOnePhotoJobOwner(data)
-    return this.createPhotoJobs(data)
+    return this.createPhotoJobs(data, ...rest)
   }
 
   createPhotoJobs = (async (
