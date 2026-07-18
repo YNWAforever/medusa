@@ -24,5 +24,6 @@ module.exports = defineConfig({
     ...buildInfrastructureModules(runtimeEnv),
     { resolve: "./src/modules/branch-capability" },
     { resolve: "./src/modules/photo-production" },
+    { resolve: "./src/modules/photo-storage" },
   ],
 })

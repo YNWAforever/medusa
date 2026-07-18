@@ -27,6 +27,41 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: fotomax_minio
+      MINIO_ROOT_PASSWORD: fotomax_minio_local_only
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - fotomax-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./infra/minio/cors.json:/config/cors.json:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mc alias set fotomax http://minio:9000 fotomax_minio fotomax_minio_local_only
+        mc mb --ignore-existing fotomax/fotomax-photo-private
+        mc anonymous set none fotomax/fotomax-photo-private
+        mc cors set fotomax/fotomax-photo-private /config/cors.json
+
 volumes:
   fotomax-postgres-data:
   fotomax-redis-data:
+  fotomax-minio-data:
