@@ -44,6 +44,9 @@ function operations(overrides: Partial<PhotoJobOperations> = {}): PhotoJobOperat
     async updatePhotoJob(_selector, data) {
       return job(data)
     },
+    async withTransaction(callback) {
+      return callback(this)
+    },
     async resolveHongKongPhotoProduct() {
       return { regionId: "reg_hk", currencyCode: "hkd" }
     },
@@ -320,5 +323,33 @@ describe("store photo-job ownership", () => {
     await expect(operations.updatePhotoJob(selector, data)).resolves.toEqual(expect.objectContaining({ revision: 5 }))
     await expect(operations.updatePhotoJob(selector, data)).resolves.toBeNull()
     expect(updatePhotoJobs).toHaveBeenCalledWith({ selector, data })
+  })
+
+  it("runs ownership mutations with a serializable shared transaction context", async () => {
+    const transactionContext = { transactionManager: { id: "tx_123" } }
+    const updatePhotoJobs = vi.fn().mockResolvedValue([job({ revision: 5 })])
+    const withPhotoJobTransaction = vi.fn(async (
+      callback: (context: Record<string, unknown>) => Promise<unknown>,
+    ) => callback(transactionContext))
+    const service = { updatePhotoJobs, withPhotoJobTransaction }
+    const scope = {
+      resolve: vi.fn((key: unknown) => key === "photoProduction" ? service : {}),
+    }
+    const operations = createMedusaPhotoJobOperations(scope as never)
+    const selector = { id: "phjob_123", revision: 4 }
+    const data = { revision: 5 }
+
+    await operations.withTransaction(async (transactionOperations) => {
+      await transactionOperations.updatePhotoJob(selector, data)
+    })
+
+    expect(withPhotoJobTransaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: "SERIALIZABLE" },
+    )
+    expect(updatePhotoJobs).toHaveBeenCalledWith(
+      { selector, data },
+      transactionContext,
+    )
   })
 })

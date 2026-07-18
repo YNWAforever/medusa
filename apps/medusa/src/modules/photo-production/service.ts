@@ -1,4 +1,8 @@
-import { MedusaService } from "@medusajs/framework/utils"
+import {
+  InjectTransactionManager,
+  MedusaContext,
+  MedusaService,
+} from "@medusajs/framework/utils"
 import PhotoAsset from "./models/photo-asset"
 import PhotoJob from "./models/photo-job"
 import PhotoUploadSession from "./models/photo-upload-session"
@@ -30,6 +34,14 @@ const PhotoProductionModuleServiceBase = MedusaService({
 type GeneratedCreatePhotoJobs = InstanceType<typeof PhotoProductionModuleServiceBase>["createPhotoJobs"]
 
 class PhotoProductionModuleService extends PhotoProductionModuleServiceBase {
+  @InjectTransactionManager()
+  async withPhotoJobTransaction<T>(
+    callback: (sharedContext: Record<string, unknown>) => Promise<T>,
+    @MedusaContext() sharedContext: Record<string, unknown> = {},
+  ): Promise<T> {
+    return callback(sharedContext)
+  }
+
   async createPhotoJob(
     data: CreatePhotoJobInput,
     ...rest: Parameters<GeneratedCreatePhotoJobs> extends [unknown, ...infer TrailingArgs]

@@ -44,6 +44,9 @@ export interface PhotoJobOperations {
     selector: Record<string, unknown>,
     data: Record<string, unknown>,
   ): Promise<PhotoJobRecord | null>
+  withTransaction<T>(
+    callback: (operations: PhotoJobOperations) => Promise<T>,
+  ): Promise<T>
   resolveHongKongPhotoProduct(): Promise<{ regionId: string; currencyCode: string }>
 }
 
@@ -223,22 +226,35 @@ function isGeneratedNotFound(error: unknown): boolean {
   return error instanceof Error && /not found|no .*found/i.test(error.message)
 }
 
-export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): PhotoJobOperations {
+function isSerializationFailure(error: unknown): boolean {
+  return error instanceof Error && /serializ|40001/i.test(error.message)
+}
+
+export function createMedusaPhotoJobOperations(
+  scope: MedusaRequest["scope"],
+  sharedContext?: Record<string, unknown>,
+): PhotoJobOperations {
   const query = scope.resolve(ContainerRegistrationKeys.QUERY)
   const photoProductionService = scope.resolve<PhotoProductionModuleService>(
     PHOTO_PRODUCTION_MODULE,
   )
 
-  return {
+  const operations: PhotoJobOperations = {
     async createPhotoJob(input) {
-      return photoProductionService.createPhotoJob(input)
+      return sharedContext
+        ? photoProductionService.createPhotoJob(input, sharedContext as never)
+        : photoProductionService.createPhotoJob(input)
     },
     async listPhotoJobs(filters) {
-      return photoProductionService.listPhotoJobs(filters)
+      return sharedContext
+        ? photoProductionService.listPhotoJobs(filters, {}, sharedContext as never)
+        : photoProductionService.listPhotoJobs(filters)
     },
     async retrievePhotoJob(id) {
       try {
-        return await photoProductionService.retrievePhotoJob(id)
+        return sharedContext
+          ? await photoProductionService.retrievePhotoJob(id, {}, sharedContext as never)
+          : await photoProductionService.retrievePhotoJob(id)
       } catch (error) {
         if (isGeneratedNotFound(error)) {
           return null
@@ -248,7 +264,10 @@ export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): P
     },
     async updatePhotoJob(selector, data) {
       try {
-        const result = await photoProductionService.updatePhotoJobs({ selector, data })
+        const update = { selector, data }
+        const result = sharedContext
+          ? await photoProductionService.updatePhotoJobs(update, sharedContext as never)
+          : await photoProductionService.updatePhotoJobs(update)
         if (Array.isArray(result)) {
           return result[0] ?? null
         }
@@ -256,6 +275,23 @@ export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): P
       } catch (error) {
         if (isGeneratedNotFound(error)) {
           return null
+        }
+        throw error
+      }
+    },
+    async withTransaction(callback) {
+      if (sharedContext?.transactionManager) {
+        return callback(operations)
+      }
+
+      try {
+        return await photoProductionService.withPhotoJobTransaction(
+          (transactionContext) => callback(createMedusaPhotoJobOperations(scope, transactionContext)),
+          { isolationLevel: "SERIALIZABLE" },
+        )
+      } catch (error) {
+        if (isSerializationFailure(error)) {
+          throw conflict()
         }
         throw error
       }
@@ -293,6 +329,8 @@ export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): P
       return { regionId: region.id, currencyCode: "hkd" }
     },
   }
+
+  return operations
 }
 
 export async function handleStorePhotoJobsPost<Scope>(
@@ -357,23 +395,25 @@ export async function handleStorePhotoJobDelete<Scope>(
   createOperations: (scope: Scope) => PhotoJobOperations,
 ): Promise<void> {
   const operations = createOperations(req.scope as Scope)
-  const id = jobId(req)
-  const job = assertVisible(await operations.retrievePhotoJob(id), req)
-  const expectedRevision = readRevision(req)
-  if (expectedRevision !== job.revision) {
-    throw conflict()
-  }
+  await operations.withTransaction(async (transactionOperations) => {
+    const id = jobId(req)
+    const job = assertVisible(await transactionOperations.retrievePhotoJob(id), req)
+    const expectedRevision = readRevision(req)
+    if (expectedRevision !== job.revision) {
+      throw conflict()
+    }
 
-  const updated = await operations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
-    status: "cancelled",
-    revision: job.revision + 1,
-    cancelled_at: new Date(),
-    last_activity_at: new Date(),
+    const updated = await transactionOperations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
+      status: "cancelled",
+      revision: job.revision + 1,
+      cancelled_at: new Date(),
+      last_activity_at: new Date(),
+    })
+    if (!updated) {
+      throw conflict()
+    }
+    res.json({ photo_job: outputPhotoJob(updated) })
   })
-  if (!updated) {
-    throw conflict()
-  }
-  res.json({ photo_job: outputPhotoJob(updated) })
 }
 
 export async function handleStorePhotoJobClaimPost<Scope>(
@@ -387,50 +427,52 @@ export async function handleStorePhotoJobClaimPost<Scope>(
   }
 
   const operations = createOperations(req.scope as Scope)
-  const id = jobId(req)
-  const job = await operations.retrievePhotoJob(id)
-  if (!job || isExpired(job)) {
-    throw notFound()
-  }
+  await operations.withTransaction(async (transactionOperations) => {
+    const id = jobId(req)
+    const job = await transactionOperations.retrievePhotoJob(id)
+    if (!job || isExpired(job)) {
+      throw notFound()
+    }
 
-  if (job.customer_id === currentCustomerId) {
+    if (job.customer_id === currentCustomerId) {
+      const expectedRevision = readRevision(req)
+      if (isSameCustomerClaimRetry(job, currentCustomerId, expectedRevision)) {
+        res.json({ photo_job: outputPhotoJob(job) })
+        return
+      }
+      throw conflict()
+    }
+    if (job.customer_id || !job.guest_owner_hash) {
+      throw notFound()
+    }
+
+    const secret = guestSecret(req)
+    if (!secret || !verifyGuestSecret(secret, job.guest_owner_hash)) {
+      throw notFound()
+    }
+
     const expectedRevision = readRevision(req)
-    if (isSameCustomerClaimRetry(job, currentCustomerId, expectedRevision)) {
-      res.json({ photo_job: outputPhotoJob(job) })
+    if (expectedRevision !== job.revision) {
+      throw conflict()
+    }
+    const updated = await transactionOperations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
+      guest_owner_hash: null,
+      customer_id: currentCustomerId,
+      revision: job.revision + 1,
+      last_activity_at: new Date(),
+    })
+    if (updated) {
+      res.json({ photo_job: outputPhotoJob(updated) })
+      return
+    }
+
+    const latest = await transactionOperations.retrievePhotoJob(id)
+    if (isSameCustomerClaimRetry(latest, currentCustomerId, expectedRevision)) {
+      res.json({ photo_job: outputPhotoJob(latest) })
       return
     }
     throw conflict()
-  }
-  if (job.customer_id || !job.guest_owner_hash) {
-    throw notFound()
-  }
-
-  const secret = guestSecret(req)
-  if (!secret || !verifyGuestSecret(secret, job.guest_owner_hash)) {
-    throw notFound()
-  }
-
-  const expectedRevision = readRevision(req)
-  if (expectedRevision !== job.revision) {
-    throw conflict()
-  }
-  const updated = await operations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
-    guest_owner_hash: null,
-    customer_id: currentCustomerId,
-    revision: job.revision + 1,
-    last_activity_at: new Date(),
   })
-  if (updated) {
-    res.json({ photo_job: outputPhotoJob(updated) })
-    return
-  }
-
-  const latest = await operations.retrievePhotoJob(id)
-  if (isSameCustomerClaimRetry(latest, currentCustomerId, expectedRevision)) {
-    res.json({ photo_job: outputPhotoJob(latest) })
-    return
-  }
-  throw conflict()
 }
 
 export async function POST(

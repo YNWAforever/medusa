@@ -90,3 +90,28 @@ describe("PhotoProductionModuleService photo job creation", () => {
     expect(createPhotoJobs).toHaveBeenCalledWith(input, sharedContext)
   })
 })
+
+describe("PhotoProductionModuleService transactions", () => {
+  it("injects one transaction manager into the callback context", async () => {
+    const transactionManager = { id: "tx_123" }
+    const transaction = vi.fn(async (
+      callback: (manager: typeof transactionManager) => Promise<unknown>,
+    ) => callback(transactionManager))
+    const service = new PhotoProductionModuleService({
+      baseRepository: { transaction },
+    } as never)
+    const callback = vi.fn(async (context: Record<string, unknown>) => context)
+
+    await service.withPhotoJobTransaction(callback, {
+      isolationLevel: "SERIALIZABLE",
+    })
+
+    expect(transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: "SERIALIZABLE" }),
+    )
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({
+      transactionManager,
+    }))
+  })
+})
