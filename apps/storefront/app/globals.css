@@ -1874,3 +1874,7 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .photo-spinner { animation: none; }
 }
+
+.photo-retry-picker { position: relative; }
+.photo-retry-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.photo-row-error { color: var(--color-red-text) !important; font-weight: 700; }

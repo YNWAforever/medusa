@@ -63,7 +63,9 @@ export async function GET(
     const customerToken = request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value
     const guestSecret = customerToken ? undefined : validGuestSecret(request)
     const body = await response.json().catch(() => ({ error: { code: "photo_job_unavailable" } }))
-    return photoJobResponse(body, response.ok ? guestSecret : undefined, response.status)
+    const result = photoJobResponse(body, response.ok ? guestSecret : undefined, response.status)
+    result.headers.set("cache-control", "no-store")
+    return result
   } catch {
     return unavailableResponse()
   }
