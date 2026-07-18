@@ -174,6 +174,23 @@ describe("store photo-job ownership", () => {
     )
   })
 
+  it("rejects repeated cancellation of a terminal job without updating it", async () => {
+    const updatePhotoJob = vi.fn()
+
+    await expectCode(
+      () => handleStorePhotoJobDelete(guestRequest({
+        params: { id: "phjob_123" },
+        headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
+      }), response(), () => operations({
+        retrievePhotoJob: async () => job({ status: "cancelled" }),
+        updatePhotoJob,
+      })),
+      "photo_job_conflict",
+    )
+
+    expect(updatePhotoJob).not.toHaveBeenCalled()
+  })
+
   it("claims a guest job for its authenticated customer", async () => {
     const updatePhotoJob = vi.fn(async (_selector: Record<string, unknown>, data: Record<string, unknown>) => job(data))
     const res = response()

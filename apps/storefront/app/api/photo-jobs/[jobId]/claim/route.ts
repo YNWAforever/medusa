@@ -7,6 +7,7 @@ import {
   isAllowedPhotoMutationOrigin,
   PHOTO_GUEST_COOKIE,
   photoRequestHeaders,
+  validPhotoGuestSecret,
 } from "../../../../../src/lib/photo/ownership"
 
 type RouteContext = { params: Promise<{ jobId: string }> }
@@ -46,12 +47,13 @@ export async function POST(
   try {
     const env = getStorefrontEnv()
     const { jobId } = await params
+    const guestSecret = request.cookies.get(PHOTO_GUEST_COOKIE)?.value
     const response = await fetch(endpoint(jobId), {
       method: "POST",
       headers: {
         ...photoRequestHeaders({
           customerToken: request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value,
-          guestSecret: request.cookies.get(PHOTO_GUEST_COOKIE)?.value,
+          guestSecret: validPhotoGuestSecret(guestSecret) ? guestSecret : undefined,
           includeGuestWithCustomer: true,
           extra: { "x-publishable-api-key": env.publishableKey },
         }),

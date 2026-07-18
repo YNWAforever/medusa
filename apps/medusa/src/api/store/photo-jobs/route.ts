@@ -12,6 +12,10 @@ import {
 } from "../../../modules/photo-production/ownership"
 import { PHOTO_PRODUCTION_MODULE } from "../../../modules/photo-production"
 import PhotoProductionModuleService from "../../../modules/photo-production/service"
+import {
+  assertPhotoJobTransition,
+  type PhotoJobStatus,
+} from "../../../modules/photo-production/state-machine"
 
 const PHOTO_PRODUCT_HANDLE = "classic-4r-photo-print"
 
@@ -400,6 +404,11 @@ export async function handleStorePhotoJobDelete<Scope>(
     const job = assertVisible(await transactionOperations.retrievePhotoJob(id), req)
     const expectedRevision = readRevision(req)
     if (expectedRevision !== job.revision) {
+      throw conflict()
+    }
+    try {
+      assertPhotoJobTransition(job.status as PhotoJobStatus, "cancelled")
+    } catch {
       throw conflict()
     }
 

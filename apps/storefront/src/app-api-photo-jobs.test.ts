@@ -6,6 +6,8 @@ vi.mock("server-only", () => ({}))
 import { CUSTOMER_TOKEN_COOKIE } from "./lib/medusa/session"
 import { PHOTO_GUEST_COOKIE, validPhotoGuestSecret } from "./lib/photo/ownership"
 import { GET, POST } from "../app/api/photo-jobs/route"
+import { GET as GET_DETAIL } from "../app/api/photo-jobs/[jobId]/route"
+import { POST as CLAIM } from "../app/api/photo-jobs/[jobId]/claim/route"
 
 const guestSecret = "gqVvUs6_vDW0BsZO8B0Kjt6fKLsWbX8WGkzev2TI17Y"
 
@@ -136,5 +138,58 @@ describe("photo-job BFF routes", () => {
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: { code: "invalid_photo_job_input" } })
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("refreshes a valid guest cookie after successful detail activity", async () => {
+    const response = await GET_DETAIL(request("/api/photo-jobs/phjob_123", {
+      headers: { cookie: `${PHOTO_GUEST_COOKIE}=${guestSecret}` },
+    }), { params: Promise.resolve({ jobId: "phjob_123" }) })
+
+    expect(response.status).toBe(200)
+    expect(response.cookies.get(PHOTO_GUEST_COOKIE)?.value).toBe(guestSecret)
+    expect(fetch).toHaveBeenCalledWith(
+      "https://medusa.test/store/photo-jobs/phjob_123",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-fotomax-guest-token": guestSecret }),
+      }),
+    )
+  })
+
+  it("does not forward or refresh a malformed guest cookie on detail GET", async () => {
+    const response = await GET_DETAIL(request("/api/photo-jobs/phjob_123", {
+      headers: { cookie: `${PHOTO_GUEST_COOKIE}=malformed` },
+    }), { params: Promise.resolve({ jobId: "phjob_123" }) })
+    const forwardedHeaders = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers)
+
+    expect(response.status).toBe(200)
+    expect(forwardedHeaders.get("x-fotomax-guest-token")).toBeNull()
+    expect(response.cookies.get(PHOTO_GUEST_COOKIE)).toBeUndefined()
+  })
+
+  it("does not refresh a guest cookie for a failed detail response", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ error: { code: "photo_job_not_found" } }, 404))
+
+    const response = await GET_DETAIL(request("/api/photo-jobs/phjob_123", {
+      headers: { cookie: `${PHOTO_GUEST_COOKIE}=${guestSecret}` },
+    }), { params: Promise.resolve({ jobId: "phjob_123" }) })
+
+    expect(response.status).toBe(404)
+    expect(response.cookies.get(PHOTO_GUEST_COOKIE)).toBeUndefined()
+  })
+
+  it("does not forward a malformed guest cookie on claim", async () => {
+    const response = await CLAIM(request("/api/photo-jobs/phjob_123/claim", {
+      method: "POST",
+      headers: {
+        cookie: `${PHOTO_GUEST_COOKIE}=malformed; ${CUSTOMER_TOKEN_COOKIE}=jwt_customer`,
+        origin: "https://storefront.test",
+        "if-match": "4",
+      },
+    }), { params: Promise.resolve({ jobId: "phjob_123" }) })
+    const forwardedHeaders = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers)
+
+    expect(response.status).toBe(200)
+    expect(forwardedHeaders.get("authorization")).toBe("Bearer jwt_customer")
+    expect(forwardedHeaders.get("x-fotomax-guest-token")).toBeNull()
   })
 })

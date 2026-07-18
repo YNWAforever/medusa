@@ -6,7 +6,9 @@ import {
   configuredStorefrontOrigin,
   isAllowedPhotoMutationOrigin,
   PHOTO_GUEST_COOKIE,
+  photoJobResponse,
   photoRequestHeaders,
+  validPhotoGuestSecret,
 } from "../../../../src/lib/photo/ownership"
 
 type RouteContext = { params: Promise<{ jobId: string }> }
@@ -16,11 +18,16 @@ function endpoint(jobId: string): string {
   return new URL(`/store/photo-jobs/${encodeURIComponent(jobId)}`, env.backendUrl).toString()
 }
 
+function validGuestSecret(request: NextRequest): string | undefined {
+  const secret = request.cookies.get(PHOTO_GUEST_COOKIE)?.value
+  return validPhotoGuestSecret(secret) ? secret : undefined
+}
+
 function medusaHeaders(request: NextRequest): Record<string, string> {
   const env = getStorefrontEnv()
   return photoRequestHeaders({
     customerToken: request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value,
-    guestSecret: request.cookies.get(PHOTO_GUEST_COOKIE)?.value,
+    guestSecret: validGuestSecret(request),
     extra: { "x-publishable-api-key": env.publishableKey },
   })
 }
@@ -53,7 +60,10 @@ export async function GET(
       headers: medusaHeaders(request),
       cache: "no-store",
     })
-    return proxyJson(response)
+    const customerToken = request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value
+    const guestSecret = customerToken ? undefined : validGuestSecret(request)
+    const body = await response.json().catch(() => ({ error: { code: "photo_job_unavailable" } }))
+    return photoJobResponse(body, response.ok ? guestSecret : undefined, response.status)
   } catch {
     return unavailableResponse()
   }
