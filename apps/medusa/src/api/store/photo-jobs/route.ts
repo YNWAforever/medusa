@@ -1,0 +1,383 @@
+import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import {
+  ContainerRegistrationKeys,
+  MedusaError,
+} from "@medusajs/framework/utils"
+
+import {
+  hashGuestSecret,
+  resolvePhotoOwnerContext,
+  verifyGuestSecret,
+  type PhotoOwnerContext,
+} from "../../../modules/photo-production/ownership"
+import { PHOTO_PRODUCTION_MODULE } from "../../../modules/photo-production"
+import PhotoProductionModuleService from "../../../modules/photo-production/service"
+
+const PHOTO_PRODUCT_HANDLE = "classic-4r-photo-print"
+
+export interface PhotoJobRecord {
+  id: string
+  guest_owner_hash?: string | null
+  customer_id?: string | null
+  region_id: string
+  locale: string
+  currency_code: string
+  product_handle: string
+  status: string
+  revision: number
+  retention_class: string
+  last_activity_at: Date | string
+  upload_started_at?: Date | string | null
+  ready_at?: Date | string | null
+  failed_at?: Date | string | null
+  cancelled_at?: Date | string | null
+  expired_at?: Date | string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+}
+
+export interface PhotoJobOperations {
+  createPhotoJob(input: Record<string, unknown>): Promise<PhotoJobRecord>
+  listPhotoJobs(filters: Record<string, unknown>): Promise<PhotoJobRecord[]>
+  retrievePhotoJob(id: string): Promise<PhotoJobRecord | null>
+  updatePhotoJob(id: string, input: Record<string, unknown>): Promise<PhotoJobRecord>
+  resolveHongKongPhotoProduct(): Promise<{ regionId: string; currencyCode: string }>
+}
+
+type HeaderReader = { get(name: string): string | null } | Record<string, string | string[] | undefined>
+
+interface StorePhotoJobsHandlerRequest<Scope = unknown> {
+  body?: unknown
+  headers: HeaderReader
+  auth_context?: { actor_id?: string | null }
+  scope?: Scope
+  params?: { id?: string }
+}
+
+interface StorePhotoJobsHandlerResponse {
+  json(body: unknown): unknown
+  status?(code: number): StorePhotoJobsHandlerResponse
+}
+
+function medusaError(type: string, code: string): MedusaError {
+  return new MedusaError(type, code)
+}
+
+function notFound(): MedusaError {
+  return medusaError(MedusaError.Types.NOT_FOUND, "photo_job_not_found")
+}
+
+function conflict(): MedusaError {
+  return medusaError(MedusaError.Types.CONFLICT, "photo_job_conflict")
+}
+
+function invalidData(code = "invalid_photo_job_input"): MedusaError {
+  return medusaError(MedusaError.Types.INVALID_DATA, code)
+}
+
+function customerId(req: StorePhotoJobsHandlerRequest): string | null {
+  return req.auth_context?.actor_id?.trim() || null
+}
+
+function headerValue(headers: HeaderReader, name: string): string | null {
+  if ("get" in headers && typeof headers.get === "function") {
+    return headers.get(name)
+  }
+
+  const headerRecord = headers as Record<string, string | string[] | undefined>
+  const direct = headerRecord[name] ?? headerRecord[name.toLowerCase()] ?? headerRecord[name.toUpperCase()]
+  if (Array.isArray(direct)) {
+    return direct[0] ?? null
+  }
+
+  return direct ?? null
+}
+
+function guestSecret(req: StorePhotoJobsHandlerRequest): string | null {
+  return headerValue(req.headers, "x-fotomax-guest-token")?.trim() || null
+}
+
+function ownerContext(req: StorePhotoJobsHandlerRequest): PhotoOwnerContext {
+  const currentCustomerId = customerId(req)
+  if (currentCustomerId) {
+    return { kind: "customer", customerId: currentCustomerId }
+  }
+
+  return resolvePhotoOwnerContext({
+    guestSecret: guestSecret(req),
+  })
+}
+
+function jobId(req: StorePhotoJobsHandlerRequest): string {
+  const id = req.params?.id?.trim()
+  if (!id) {
+    throw notFound()
+  }
+  return id
+}
+
+function readRevision(req: StorePhotoJobsHandlerRequest): number {
+  const value = headerValue(req.headers, "if-match")?.trim()
+  if (!value || !/^\d+$/.test(value)) {
+    throw conflict()
+  }
+  return Number(value)
+}
+
+function isExpired(job: PhotoJobRecord): boolean {
+  return job.status === "expired"
+}
+
+function ownerFilter(owner: PhotoOwnerContext): Record<string, unknown> {
+  if (owner.kind === "customer") {
+    return { customer_id: owner.customerId }
+  }
+
+  return { guest_owner_hash: owner.digest.toString("hex") }
+}
+
+function isOwnedByRequest(job: PhotoJobRecord, req: StorePhotoJobsHandlerRequest): boolean {
+  const currentCustomerId = customerId(req)
+  if (currentCustomerId) {
+    return job.customer_id === currentCustomerId
+  }
+
+  const secret = guestSecret(req)
+  return Boolean(
+    secret
+    && typeof job.guest_owner_hash === "string"
+    && verifyGuestSecret(secret, job.guest_owner_hash),
+  )
+}
+
+function assertVisible(job: PhotoJobRecord | null, req: StorePhotoJobsHandlerRequest): PhotoJobRecord {
+  if (!job || isExpired(job) || !isOwnedByRequest(job, req)) {
+    throw notFound()
+  }
+
+  return job
+}
+
+function assertRevision(job: PhotoJobRecord, req: StorePhotoJobsHandlerRequest): void {
+  if (readRevision(req) !== job.revision) {
+    throw conflict()
+  }
+}
+
+function outputPhotoJob(job: PhotoJobRecord): Record<string, unknown> {
+  const {
+    guest_owner_hash: _guestOwnerHash,
+    customer_id: _customerId,
+    ...safeJob
+  } = job
+  return safeJob
+}
+
+function outputPhotoJobs(jobs: PhotoJobRecord[]): Array<Record<string, unknown>> {
+  return jobs.filter((job) => !isExpired(job)).map(outputPhotoJob)
+}
+
+function parseCreateBody(body: unknown): { locale: "en" | "zh-HK" } {
+  if (body === undefined || body === null) {
+    return { locale: "en" }
+  }
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw invalidData()
+  }
+
+  const locale = Reflect.get(body, "locale")
+  if (locale === undefined) {
+    return { locale: "en" }
+  }
+  if (locale !== "en" && locale !== "zh-HK") {
+    throw invalidData()
+  }
+
+  return { locale }
+}
+
+export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): PhotoJobOperations {
+  const query = scope.resolve(ContainerRegistrationKeys.QUERY)
+  const photoProductionService = scope.resolve<PhotoProductionModuleService>(
+    PHOTO_PRODUCTION_MODULE,
+  )
+
+  return {
+    async createPhotoJob(input) {
+      return photoProductionService.createPhotoJob(input)
+    },
+    async listPhotoJobs(filters) {
+      return photoProductionService.listPhotoJobs(filters)
+    },
+    async retrievePhotoJob(id) {
+      try {
+        return await photoProductionService.retrievePhotoJob(id)
+      } catch (error) {
+        if (error instanceof Error && /not found/i.test(error.message)) {
+          return null
+        }
+        throw error
+      }
+    },
+    async updatePhotoJob(id, input) {
+      return photoProductionService.updatePhotoJobs({ id, ...input })
+    },
+    async resolveHongKongPhotoProduct() {
+      const regionResult = await query.graph({
+        entity: "region",
+        fields: ["id", "currency_code", "countries.iso_2"],
+        filters: { name: "Hong Kong" },
+      })
+      const region = regionResult.data.find((candidate: {
+        id?: string
+        currency_code?: string
+        countries?: Array<{ iso_2?: string | null }> | null
+      }) =>
+        typeof candidate.id === "string"
+        && candidate.currency_code?.toLowerCase() === "hkd"
+        && candidate.countries?.some((country) => country.iso_2?.toLowerCase() === "hk"),
+      )
+      if (!region?.id) {
+        throw invalidData("photo_region_unavailable")
+      }
+
+      const productResult = await query.graph({
+        entity: "product",
+        fields: ["id", "handle", "status"],
+        filters: { handle: PHOTO_PRODUCT_HANDLE, status: "published" },
+      })
+      if (!productResult.data.some((product: { handle?: string; status?: string }) =>
+        product.handle === PHOTO_PRODUCT_HANDLE && product.status === "published",
+      )) {
+        throw invalidData("photo_product_unavailable")
+      }
+
+      return { regionId: region.id, currencyCode: "hkd" }
+    },
+  }
+}
+
+export async function handleStorePhotoJobsPost<Scope>(
+  req: StorePhotoJobsHandlerRequest<Scope>,
+  res: StorePhotoJobsHandlerResponse,
+  createOperations: (scope: Scope) => PhotoJobOperations,
+): Promise<void> {
+  const owner = ownerContext(req)
+  const input = parseCreateBody(req.body)
+  const operations = createOperations(req.scope as Scope)
+  const productContext = await operations.resolveHongKongPhotoProduct()
+  const now = new Date()
+  const ownerInput = owner.kind === "customer"
+    ? { customer_id: owner.customerId, guest_owner_hash: null }
+    : { guest_owner_hash: owner.digest.toString("hex"), customer_id: null }
+
+  const photoJob = await operations.createPhotoJob({
+    ...ownerInput,
+    region_id: productContext.regionId,
+    locale: input.locale,
+    currency_code: productContext.currencyCode,
+    product_handle: PHOTO_PRODUCT_HANDLE,
+    status: "draft",
+    revision: 0,
+    retention_class: "standard",
+    last_activity_at: now,
+  })
+
+  res.json({ photo_job: outputPhotoJob(photoJob) })
+}
+
+export async function handleStorePhotoJobsGet<Scope>(
+  req: StorePhotoJobsHandlerRequest<Scope>,
+  res: StorePhotoJobsHandlerResponse,
+  createOperations: (scope: Scope) => PhotoJobOperations,
+): Promise<void> {
+  const owner = ownerContext(req)
+  const jobs = await createOperations(req.scope as Scope).listPhotoJobs(ownerFilter(owner))
+  res.json({ photo_jobs: outputPhotoJobs(jobs) })
+}
+
+export async function handleStorePhotoJobGet<Scope>(
+  req: StorePhotoJobsHandlerRequest<Scope>,
+  res: StorePhotoJobsHandlerResponse,
+  createOperations: (scope: Scope) => PhotoJobOperations,
+): Promise<void> {
+  const job = assertVisible(
+    await createOperations(req.scope as Scope).retrievePhotoJob(jobId(req)),
+    req,
+  )
+  res.json({ photo_job: outputPhotoJob(job) })
+}
+
+export async function handleStorePhotoJobDelete<Scope>(
+  req: StorePhotoJobsHandlerRequest<Scope>,
+  res: StorePhotoJobsHandlerResponse,
+  createOperations: (scope: Scope) => PhotoJobOperations,
+): Promise<void> {
+  const operations = createOperations(req.scope as Scope)
+  const id = jobId(req)
+  const job = assertVisible(await operations.retrievePhotoJob(id), req)
+  assertRevision(job, req)
+
+  const updated = await operations.updatePhotoJob(id, {
+    status: "cancelled",
+    revision: job.revision + 1,
+    cancelled_at: new Date(),
+    last_activity_at: new Date(),
+  })
+  res.json({ photo_job: outputPhotoJob(updated) })
+}
+
+export async function handleStorePhotoJobClaimPost<Scope>(
+  req: StorePhotoJobsHandlerRequest<Scope>,
+  res: StorePhotoJobsHandlerResponse,
+  createOperations: (scope: Scope) => PhotoJobOperations,
+): Promise<void> {
+  const currentCustomerId = customerId(req)
+  if (!currentCustomerId) {
+    throw notFound()
+  }
+
+  const operations = createOperations(req.scope as Scope)
+  const id = jobId(req)
+  const job = await operations.retrievePhotoJob(id)
+  if (!job || isExpired(job)) {
+    throw notFound()
+  }
+
+  if (job.customer_id === currentCustomerId) {
+    assertRevision(job, req)
+    res.json({ photo_job: outputPhotoJob(job) })
+    return
+  }
+  if (job.customer_id || !job.guest_owner_hash) {
+    throw notFound()
+  }
+
+  const secret = guestSecret(req)
+  if (!secret || !verifyGuestSecret(secret, job.guest_owner_hash)) {
+    throw notFound()
+  }
+
+  assertRevision(job, req)
+  const updated = await operations.updatePhotoJob(id, {
+    guest_owner_hash: null,
+    customer_id: currentCustomerId,
+    revision: job.revision + 1,
+    last_activity_at: new Date(),
+  })
+  res.json({ photo_job: outputPhotoJob(updated) })
+}
+
+export async function POST(
+  req: MedusaRequest,
+  res: MedusaResponse,
+): Promise<void> {
+  await handleStorePhotoJobsPost(req, res, createMedusaPhotoJobOperations)
+}
+
+export async function GET(
+  req: MedusaRequest,
+  res: MedusaResponse,
+): Promise<void> {
+  await handleStorePhotoJobsGet(req, res, createMedusaPhotoJobOperations)
+}
