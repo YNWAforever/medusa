@@ -103,6 +103,19 @@ describe("PhotoStorageModuleService AWS operations", () => {
     await expect(service.headPrivateObject(key)).resolves.toEqual({ bytes: 42, contentType: "image/jpeg", checksumCRC32C: "sum" })
   })
 
+  it("maps missing private objects to a stable redacted code", async () => {
+    const { service, send } = setup()
+    send.mockRejectedValueOnce(Object.assign(new Error("secret object path"), { name: "NoSuchKey" }))
+    await expect(service.headPrivateObject(key)).rejects.toThrow("photo_storage_not_found")
+  })
+  it("reads only a bounded private object prefix", async () => {
+    const transformToByteArray = vi.fn(async () => Uint8Array.from([0xff, 0xd8, 0xff, 1]))
+    const { service, send } = setup([{ Body: { transformToByteArray } }])
+    await expect(service.readPrivateObjectPrefix(key, 12)).resolves.toEqual(Uint8Array.from([0xff, 0xd8, 0xff, 1]))
+    expect(send.mock.calls[0][0].input.Range).toBe("bytes=0-11")
+    await expect(service.readPrivateObjectPrefix(key, 65)).rejects.toThrow("photo_storage_invalid_range")
+  })
+
   it("deletes keys in S3-sized chunks and accepts an empty list", async () => {
     const { service, send } = setup([{}, {}])
     await service.deletePrivateObjects(Array.from({ length: 1001 }, (_, index) =>

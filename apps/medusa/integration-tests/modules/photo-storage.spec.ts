@@ -68,6 +68,8 @@ describe("private photo storage", () => {
       checksumCRC32C,
     })
 
+    await expect(storage.readPrivateObjectPrefix(key, 12)).resolves.toEqual(body.subarray(0, 12))
+
     const unsigned = await fetch(`${endpoint}/${config.bucket}/${key}`)
     expect(unsigned.status).toBe(403)
 

@@ -22,6 +22,7 @@ export interface PhotoObjectStorage {
     contentType: string
     checksumCRC32C: string
   }>
+  readPrivateObjectPrefix(key: string, maxBytes: number): Promise<Uint8Array>
   deletePrivateObjects(keys: string[]): Promise<void>
 }
 

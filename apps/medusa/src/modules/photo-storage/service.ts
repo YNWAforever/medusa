@@ -3,6 +3,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectsCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -40,6 +41,11 @@ function validatePart(partNumber: number): void {
 
 function providerError(): PhotoStorageError {
   return new PhotoStorageError("photo_storage_provider_error")
+}
+
+function isNotFound(error: unknown): boolean {
+  const value = error as { name?: string; $metadata?: { httpStatusCode?: number } }
+  return value?.name === "NoSuchKey" || value?.name === "NotFound" || value?.$metadata?.httpStatusCode === 404
 }
 
 export default class PhotoStorageModuleService implements PhotoObjectStorage {
@@ -154,6 +160,22 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
       return { bytes: result.ContentLength, contentType: result.ContentType, checksumCRC32C: result.ChecksumCRC32C }
     } catch (error) {
       if (error instanceof PhotoStorageError) throw error
+      if (isNotFound(error)) throw new PhotoStorageError("photo_storage_not_found")
+      throw providerError()
+    }
+  }
+
+  async readPrivateObjectPrefix(key: string, maxBytes: number): Promise<Uint8Array> {
+    validateKey(key)
+    if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 64) throw new PhotoStorageError("photo_storage_invalid_range")
+    try {
+      const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key, Range: `bytes=0-${maxBytes - 1}` }))
+      if (!result.Body) throw providerError()
+      const bytes = await result.Body.transformToByteArray()
+      return bytes.slice(0, maxBytes)
+    } catch (error) {
+      if (error instanceof PhotoStorageError) throw error
+      if (isNotFound(error)) throw new PhotoStorageError("photo_storage_not_found")
       throw providerError()
     }
   }
