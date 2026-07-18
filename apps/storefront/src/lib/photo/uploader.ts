@@ -14,7 +14,7 @@ export function restoreUploads(job: PhotoJobView): RestoredUpload[] { return (jo
 async function retry<T>(run: () => Promise<T>, attempts = 3): Promise<T> { let last: unknown; for (let attempt = 0; attempt < attempts; attempt += 1) { try { return await run() } catch (error) { last = error; if (error instanceof PhotoClientError && error.status > 0 && error.status < 500 && error.status !== 429) throw error } }; throw last }
 async function signature(file: File): Promise<string> { return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer())) }
 export class MultipartUploader {
-  constructor(private readonly client: PhotoClient, private readonly fetcher: typeof fetch = fetch) {}
+  constructor(private readonly client: PhotoClient, private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {}
   async upload(jobId: string, file: File, sourceIdempotencyKey: string, callbacks: UploadCallbacks = {}): Promise<UploadResult> {
     const input = { filename: file.name, reportedMime: file.type || "application/octet-stream", bytes: file.size, sourceIdempotencyKey, signatureBase64: await signature(file) }
     let session = await this.client.createUpload(jobId, input)
