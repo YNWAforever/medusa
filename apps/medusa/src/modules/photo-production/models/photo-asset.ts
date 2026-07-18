@@ -1,5 +1,5 @@
-import { model } from "@medusajs/framework/utils"
-import PhotoJob from "./photo-job"
+import { model } from "@medusajs/framework/utils";
+import PhotoJob from "./photo-job";
 
 const PhotoAsset = model.define("photo_asset", {
   id: model.id({ prefix: "phast" }).primaryKey(),
@@ -19,6 +19,7 @@ const PhotoAsset = model.define("photo_asset", {
   upload_started_at: model.dateTime().nullable(),
   uploaded_at: model.dateTime().nullable(),
   failed_at: model.dateTime().nullable(),
-})
+  provider_cleanup_completed_at: model.dateTime().nullable(),
+});
 
-export default PhotoAsset
+export default PhotoAsset;

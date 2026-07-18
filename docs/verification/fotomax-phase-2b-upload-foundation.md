@@ -5,13 +5,19 @@ Branch: `codex/fotomax-phase-2b-upload-foundation`
 
 ## Executed verification
 
-- Medusa focused unit suite: 6 files, 121 tests passed. Coverage includes multipart routes, asset deletion, storage, middleware, state transitions, and 5 cleanup-job cases.
-- Storefront focused unit suite: 3 files, 20 tests passed. Coverage includes the API proxy, browser multipart uploader, and uploader component.
+- Medusa focused unit suite: 6 files, 122 tests passed. Coverage includes multipart routes, asset deletion, storage, middleware, state transitions, and 6 cleanup-job cases.
+- Storefront focused unit suite: 3 files, 21 tests passed. Coverage includes the API proxy, browser multipart uploader, and uploader component.
 - Medusa TypeScript: `npm.cmd run typecheck --workspace @fotomax/medusa` passed.
 - Storefront TypeScript: `npm.cmd run typecheck --workspace @fotomax/storefront` passed.
 - Playwright mocked upload journeys: 2 passed (`desktop-chromium` English and `mobile-chromium` Traditional Chinese), including upload completion and reload restoration.
 - Next.js 16 production compile: `next build --experimental-build-mode compile` passed with all photo-job UI and API routes present.
 - `git diff --check` passed after formatting the changed TypeScript files.
+
+## Independent review fixes
+
+- Cleanup now rotates failed sessions/jobs, queries only pending provider cleanup, and records durable provider completion.
+- Browser removal aborts active PUT and storefront API requests through a per-row `AbortController`.
+- Persisted idempotency keys are namespaced by photo job, preventing cross-job collisions.
 
 ## Browser evidence
 

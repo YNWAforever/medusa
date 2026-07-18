@@ -22,4 +22,4 @@ Task 2: complete (commits `5697653`..`e936f25`; secure guest/customer ownership 
 Task 3: complete (commits `3ab1680`, `4afbfc5`; private storage and checksum binding)
 Task 4: complete (commits `aba2c11`..`7d070b9`; resumable multipart API and lifecycle hardening, independent review approved)
 Task 5: complete (commits `c441a09`..`68ef45a`; bilingual upload workspace, reload recovery, durable removal, no-store responses, independent review approved)
-Task 6: complete (cleanup job, real-service integration specification, mocked desktop/mobile E2E, production compile, and verification evidence; real-service execution unavailable because Docker/PostgreSQL/Redis/MinIO were not running)
+Task 6: complete (cleanup job, real-service integration specification, mocked desktop/mobile E2E, production compile, verification evidence, and independent-review fixes for cleanup fairness, active cancellation, and scoped idempotency; real-service execution unavailable because Docker/PostgreSQL/Redis/MinIO were not running)
