@@ -5,7 +5,7 @@ Branch: `codex/fotomax-phase-2b-upload-foundation`
 
 ## Executed verification
 
-- Medusa focused unit suite: 6 files, 122 tests passed. Coverage includes multipart routes, asset deletion, storage, middleware, state transitions, and 6 cleanup-job cases.
+- Medusa focused unit suite: 6 files, 123 tests passed. Coverage includes multipart routes, asset deletion, storage, middleware, state transitions, and 7 cleanup-job cases.
 - Storefront focused unit suite: 3 files, 21 tests passed. Coverage includes the API proxy, browser multipart uploader, and uploader component.
 - Medusa TypeScript: `npm.cmd run typecheck --workspace @fotomax/medusa` passed.
 - Storefront TypeScript: `npm.cmd run typecheck --workspace @fotomax/storefront` passed.

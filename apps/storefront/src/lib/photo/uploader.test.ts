@@ -121,6 +121,7 @@ describe("MultipartUploader", () => {
     expect(api.abort).toHaveBeenCalledWith("job_1", "session_1");
     expect(api.createUpload).toHaveBeenCalledTimes(2);
     expect(api.createUpload.mock.calls[1]?.[2]).toBe(controller.signal);
+    expect(api.signPart.mock.calls[1]?.[4]).toBe(controller.signal);
   });
   it("reports sessions so the UI can abort active uploads", async () => {
     const api = client();

@@ -188,6 +188,7 @@ export class MultipartUploader {
         session.sessionId,
         partNumber,
         checksumCRC32C,
+        signal,
       );
       const response = await retry(() =>
         this.fetcher(signed.url, {

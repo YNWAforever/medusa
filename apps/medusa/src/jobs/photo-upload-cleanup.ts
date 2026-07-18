@@ -91,29 +91,33 @@ export async function runPhotoUploadCleanup({
     { status: "deleted", provider_cleanup_completed_at: null },
     { take: batchSize, order: { updated_at: "ASC" }, withDeleted: true },
   );
-  const remaining = Math.max(0, batchSize - deletedAssets.length);
-  const jobs = remaining
-    ? await service.listPhotoJobs(
-        { status: ["cancelled", "expired"] },
-        { take: remaining, order: { updated_at: "ASC" } },
-      )
-    : [];
+  const terminalBatchSize = batchSize;
+  const jobs = await service.listPhotoJobs(
+    { status: ["cancelled", "expired"] },
+    { take: terminalBatchSize, order: { updated_at: "ASC" } },
+  );
   const terminalAssets: any[] = [];
   for (const job of jobs) {
     const assets = await service.listPhotoAssets(
       { job_id: job.id, provider_cleanup_completed_at: null },
-      { take: remaining - terminalAssets.length, order: { updated_at: "ASC" } },
+      {
+        take: terminalBatchSize - terminalAssets.length,
+        order: { updated_at: "ASC" },
+      },
     );
     terminalAssets.push(...assets);
     await service.updatePhotoJobs({
       selector: { id: job.id },
       data: { last_activity_at: now },
     });
-    if (terminalAssets.length >= remaining) break;
+    if (terminalAssets.length >= terminalBatchSize) break;
   }
 
-  const candidates = [...deletedAssets, ...terminalAssets];
-  for (const asset of candidates.slice(0, batchSize)) {
+  const candidates = [
+    ...deletedAssets.slice(0, batchSize),
+    ...terminalAssets.slice(0, terminalBatchSize),
+  ];
+  for (const asset of candidates) {
     try {
       const assetSessions = await service.listPhotoUploadSessions({
         asset_id: asset.id,

@@ -143,4 +143,32 @@ describe("photo upload cleanup", () => {
     expect(output).not.toContain("provider-secret");
     expect(output).not.toMatch(/https?:|credential|bytes=/i);
   });
+  it("reserves an independent batch for terminal-job assets", async () => {
+    const f = fixture();
+    f.service.listPhotoUploadSessions.mockResolvedValue([]);
+    f.service.listPhotoJobs.mockResolvedValue([
+      { id: "terminal_job", status: "cancelled" },
+    ]);
+    const deleted = [
+      { ...f.asset, id: "deleted_1", status: "deleted" },
+      { ...f.asset, id: "deleted_2", status: "deleted" },
+    ];
+    const terminal = {
+      ...f.asset,
+      id: "terminal_asset",
+      job_id: "terminal_job",
+    };
+    f.service.listPhotoAssets.mockImplementation(async (filters) =>
+      filters.status === "deleted"
+        ? deleted
+        : filters.job_id === "terminal_job"
+          ? [terminal]
+          : [],
+    );
+    await runPhotoUploadCleanup({ ...f, batchSize: 2 });
+    expect(f.storage.deletePrivateObjects).toHaveBeenCalledTimes(3);
+    expect(f.storage.deletePrivateObjects).toHaveBeenCalledWith([
+      terminal.object_key,
+    ]);
+  });
 });
