@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 vi.mock("server-only", () => ({}))
 
 import { CUSTOMER_TOKEN_COOKIE } from "./lib/medusa/session"
-import { PHOTO_GUEST_COOKIE } from "./lib/photo/ownership"
+import { PHOTO_GUEST_COOKIE, validPhotoGuestSecret } from "./lib/photo/ownership"
 import { GET, POST } from "../app/api/photo-jobs/route"
 
 const guestSecret = "gqVvUs6_vDW0BsZO8B0Kjt6fKLsWbX8WGkzev2TI17Y"
@@ -60,6 +60,67 @@ describe("photo-job BFF routes", () => {
         "x-fotomax-guest-token": guestSecret,
       }),
     }))
+  })
+
+  it("does not forward an invalid guest cookie on GET", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ photo_jobs: [] }))
+
+    const response = await GET(request("/api/photo-jobs", {
+      headers: { cookie: `${PHOTO_GUEST_COOKIE}=malformed` },
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.cookies.get(PHOTO_GUEST_COOKIE)).toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith("https://medusa.test/store/photo-jobs", expect.objectContaining({
+      headers: expect.not.objectContaining({
+        "x-fotomax-guest-token": "malformed",
+      }),
+    }))
+  })
+
+  it("replaces an invalid guest cookie with one stable valid secret on POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ photo_job: { id: "phjob_123" } }))
+
+    const response = await POST(request("/api/photo-jobs", {
+      method: "POST",
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        cookie: `${PHOTO_GUEST_COOKIE}=malformed`,
+        origin: "https://storefront.test",
+      },
+    }))
+
+    const replacement = response.cookies.get(PHOTO_GUEST_COOKIE)?.value
+    const forwardedHeaders = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers)
+
+    expect(response.status).toBe(200)
+    expect(replacement).toBeDefined()
+    expect(validPhotoGuestSecret(replacement)).toBe(true)
+    expect(forwardedHeaders.get("x-fotomax-guest-token")).toBe(replacement)
+    expect(forwardedHeaders.get("x-fotomax-guest-token")).not.toBe("malformed")
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly")
+    expect(JSON.stringify(await response.clone().json())).not.toContain(replacement)
+  })
+
+  it("does not rotate a valid guest cookie on POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ photo_job: { id: "phjob_123" } }))
+
+    const response = await POST(request("/api/photo-jobs", {
+      method: "POST",
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        cookie: `${PHOTO_GUEST_COOKIE}=${guestSecret}`,
+        origin: "https://storefront.test",
+      },
+    }))
+
+    const forwardedHeaders = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers)
+
+    expect(response.status).toBe(200)
+    expect(forwardedHeaders.get("x-fotomax-guest-token")).toBe(guestSecret)
+    expect(response.cookies.get(PHOTO_GUEST_COOKIE)?.value).toBe(guestSecret)
   })
 
   it("returns 400 for malformed POST JSON before contacting Medusa", async () => {

@@ -19,7 +19,7 @@ function medusaHeaders(request: NextRequest, options: {
   const env = getStorefrontEnv()
   return photoRequestHeaders({
     customerToken: request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value,
-    guestSecret: request.cookies.get(PHOTO_GUEST_COOKIE)?.value,
+    guestSecret: requestGuestSecret(request),
     includeGuestWithCustomer: options.includeGuestWithCustomer,
     extra: {
       "x-publishable-api-key": env.publishableKey,
@@ -89,14 +89,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const customerToken = request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value
-  const existingGuestSecret = request.cookies.get(PHOTO_GUEST_COOKIE)?.value
+  const existingGuestSecret = requestGuestSecret(request)
   const generatedGuestSecret = customerToken || existingGuestSecret
     ? undefined
     : createPhotoGuestSecret()
   const guestSecret = existingGuestSecret ?? generatedGuestSecret
-  const responseGuestSecret = generatedGuestSecret ?? (
-    customerToken ? undefined : validPhotoGuestSecret(existingGuestSecret) ? existingGuestSecret : undefined
-  )
+  const responseGuestSecret = customerToken ? undefined : guestSecret
 
   let body: unknown
   try {
