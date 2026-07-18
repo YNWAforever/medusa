@@ -40,7 +40,7 @@ export function createPhotoGuestCookie(secret: string) {
 }
 
 export function photoJobResponse(body: unknown, guestSecret?: string, status = 200): NextResponse {
-  const response = NextResponse.json(body, { status })
+  const response = NextResponse.json(body, { status, headers: { "cache-control": "no-store" } })
   if (guestSecret) {
     const cookie = createPhotoGuestCookie(guestSecret)
     response.cookies.set(cookie.name, cookie.value, cookie.options)

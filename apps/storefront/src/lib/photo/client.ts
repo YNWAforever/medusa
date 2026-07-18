@@ -26,6 +26,9 @@ export function createPhotoClient(fetcher: Fetcher = fetch) {
     async complete(jobId: string, sessionId: string, parts: UploadedPart[]): Promise<void> {
       await json(fetcher, `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/complete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ parts }) })
     },
+    async deleteAsset(jobId: string, assetId: string): Promise<void> {
+      await json(fetcher, `/api/photo-jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" })
+    },
     async abort(jobId: string, sessionId: string): Promise<void> {
       await json(fetcher, `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/abort`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
     },
