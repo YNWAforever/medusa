@@ -106,7 +106,10 @@ describe("photo upload cleanup", () => {
     await runPhotoUploadCleanup(f);
     expect(f.service.listPhotoAssets).toHaveBeenCalledWith(
       { status: "deleted", provider_cleanup_completed_at: null },
-      expect.objectContaining({ order: { updated_at: "ASC" } }),
+      expect.objectContaining({
+        order: { updated_at: "ASC" },
+        withDeleted: true,
+      }),
     );
     expect(f.service.updatePhotoAssets).toHaveBeenCalledWith(
       expect.objectContaining({

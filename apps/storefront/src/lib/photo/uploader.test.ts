@@ -107,6 +107,7 @@ describe("MultipartUploader", () => {
           requiredHeaders: {},
         }),
     });
+    const controller = new AbortController();
     const put = vi.fn(
       async () =>
         new Response(null, { status: 200, headers: { etag: "etag" } }),
@@ -115,9 +116,11 @@ describe("MultipartUploader", () => {
       "job_1",
       file,
       "source",
+      { signal: controller.signal },
     );
     expect(api.abort).toHaveBeenCalledWith("job_1", "session_1");
     expect(api.createUpload).toHaveBeenCalledTimes(2);
+    expect(api.createUpload.mock.calls[1]?.[2]).toBe(controller.signal);
   });
   it("reports sessions so the UI can abort active uploads", async () => {
     const api = client();

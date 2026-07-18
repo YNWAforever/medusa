@@ -140,10 +140,14 @@ export class MultipartUploader {
       )
         throw error;
       await this.client.abort(jobId, session.sessionId).catch(() => undefined);
-      session = await this.client.createUpload(jobId, {
-        ...input,
-        sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:${Date.now()}`,
-      });
+      session = await this.client.createUpload(
+        jobId,
+        {
+          ...input,
+          sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:${Date.now()}`,
+        },
+        callbacks.signal,
+      );
       callbacks.onSession?.(session);
       if (session.status === "completed")
         return { assetId: session.assetId, sessionId: session.sessionId };

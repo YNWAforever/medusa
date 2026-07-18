@@ -89,7 +89,7 @@ export async function runPhotoUploadCleanup({
 
   const deletedAssets = await service.listPhotoAssets(
     { status: "deleted", provider_cleanup_completed_at: null },
-    { take: batchSize, order: { updated_at: "ASC" } },
+    { take: batchSize, order: { updated_at: "ASC" }, withDeleted: true },
   );
   const remaining = Math.max(0, batchSize - deletedAssets.length);
   const jobs = remaining
