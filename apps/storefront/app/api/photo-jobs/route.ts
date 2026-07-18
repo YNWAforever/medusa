@@ -39,7 +39,7 @@ function mutationForbidden(request: NextRequest): NextResponse | null {
     return null
   }
 
-  return NextResponse.json({ error: { code: "photo_job_origin_forbidden" } }, { status: 403 })
+  return NextResponse.json({ error: { code: "photo_job_origin_forbidden" } }, { status: 403, headers: { "cache-control": "no-store" } })
 }
 
 async function proxyJson(response: Response, guestSecret?: string): Promise<NextResponse> {
@@ -67,7 +67,7 @@ function requestGuestSecret(request: NextRequest): string | undefined {
 }
 
 function unavailableResponse(): NextResponse {
-  return NextResponse.json({ error: { code: "photo_job_unavailable" } }, { status: 502 })
+  return NextResponse.json({ error: { code: "photo_job_unavailable" } }, { status: 502, headers: { "cache-control": "no-store" } })
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     body = await parseOptionalJsonBody(request)
   } catch {
-    return NextResponse.json({ error: { code: "invalid_photo_job_input" } }, { status: 400 })
+    return NextResponse.json({ error: { code: "invalid_photo_job_input" } }, { status: 400, headers: { "cache-control": "no-store" } })
   }
 
   try {
