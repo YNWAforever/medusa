@@ -18,6 +18,7 @@ import {
 
 const KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/originals\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_SIGNATURE_SECONDS = 900
+const CRC32C_PATTERN = /^[A-Za-z0-9+/]{6}==$/
 
 type CommandClient = { send(command: unknown): Promise<any> }
 type Presign = (client: any, command: any, options: { expiresIn: number }) => Promise<string>
@@ -78,9 +79,12 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
     }
   }
 
-  async signUploadPart(input: { key: string; uploadId: string; partNumber: number; expiresIn?: number }): Promise<{ url: string; expiresAt: string; requiredHeaders: Record<string, string> }> {
+  async signUploadPart(input: { key: string; uploadId: string; partNumber: number; checksumCRC32C: string; expiresIn?: number }): Promise<{ url: string; expiresAt: string; requiredHeaders: Record<string, string> }> {
     validateKey(input.key)
     validatePart(input.partNumber)
+    if (!CRC32C_PATTERN.test(input.checksumCRC32C)) {
+      throw new PhotoStorageError("photo_storage_invalid_checksum")
+    }
     const expiresIn = input.expiresIn ?? MAX_SIGNATURE_SECONDS
     if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_SIGNATURE_SECONDS) {
       throw new PhotoStorageError("photo_storage_invalid_expiry")
@@ -92,12 +96,16 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
         UploadId: input.uploadId,
         PartNumber: input.partNumber,
         ChecksumAlgorithm: "CRC32C",
+        ChecksumCRC32C: input.checksumCRC32C,
       })
       const url = await this.presign(this.client, command, { expiresIn })
       return {
         url,
         expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
-        requiredHeaders: { "x-amz-sdk-checksum-algorithm": "CRC32C" },
+        requiredHeaders: {
+          "x-amz-checksum-crc32c": input.checksumCRC32C,
+          "x-amz-sdk-checksum-algorithm": "CRC32C",
+        },
       }
     } catch {
       throw providerError()
@@ -106,7 +114,7 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
 
   async completeMultipartUpload(input: { key: string; uploadId: string; parts: Array<{ partNumber: number; etag: string; checksumCRC32C: string }> }): Promise<{ etag: string; checksumCRC32C: string }> {
     validateKey(input.key)
-    if (input.parts.length === 0 || input.parts.some((part, index) => part.partNumber !== index + 1 || !part.etag || !part.checksumCRC32C)) {
+    if (input.parts.length === 0 || input.parts.length > 10000 || input.parts.some((part, index) => part.partNumber !== index + 1 || !part.etag || !CRC32C_PATTERN.test(part.checksumCRC32C))) {
       throw new PhotoStorageError("photo_storage_invalid_parts")
     }
     try {

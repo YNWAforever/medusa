@@ -28,6 +28,7 @@ describe("private photo storage", () => {
   it("creates, uploads, completes, heads, and deletes a private multipart object", async () => {
     const key = objectKey()
     const body = Buffer.from("fotomax-private-photo")
+    const checksumCRC32C = "hRHAOg=="
     const { uploadId } = await storage.startMultipartUpload({
       key,
       contentType: "image/jpeg",
@@ -36,6 +37,7 @@ describe("private photo storage", () => {
       key,
       uploadId,
       partNumber: 1,
+      checksumCRC32C,
     })
     const upload = await fetch(signedPart.url, {
       method: "PUT",
@@ -45,9 +47,9 @@ describe("private photo storage", () => {
     expect(upload.status).toBe(200)
 
     const etag = upload.headers.get("etag")
-    const checksumCRC32C = upload.headers.get("x-amz-checksum-crc32c")
+    const uploadedChecksum = upload.headers.get("x-amz-checksum-crc32c")
     expect(etag).toBeTruthy()
-    expect(checksumCRC32C).toBeTruthy()
+    expect(uploadedChecksum).toBe(checksumCRC32C)
 
     await storage.completeMultipartUpload({
       key,

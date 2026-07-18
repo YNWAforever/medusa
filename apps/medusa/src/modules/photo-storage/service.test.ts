@@ -10,6 +10,7 @@ const config = {
   forcePathStyle: true,
 }
 const key = "photo-jobs/123e4567-e89b-42d3-a456-426614174000/originals/123e4567-e89b-42d3-a456-426614174001"
+const checksumCRC32C = "hRHAOg=="
 
 function setup(responses: unknown[] = []) {
   const send = vi.fn()
@@ -27,20 +28,32 @@ describe("PhotoStorageModuleService guards", () => {
 
   it.each([0, 10001, 1.5])("rejects invalid part number %s", async (partNumber) => {
     const { service } = setup()
-    await expect(service.signUploadPart({ key, uploadId: "upload-1", partNumber })).rejects.toThrow("photo_storage_invalid_part")
+    await expect(service.signUploadPart({ key, uploadId: "upload-1", partNumber, checksumCRC32C })).rejects.toThrow("photo_storage_invalid_part")
   })
 
   it("rejects nonconsecutive completion parts", async () => {
     const { service } = setup()
     await expect(service.completeMultipartUpload({ key, uploadId: "upload-1", parts: [
-      { partNumber: 1, etag: "one", checksumCRC32C: "a" },
-      { partNumber: 3, etag: "three", checksumCRC32C: "b" },
+      { partNumber: 1, etag: "one", checksumCRC32C },
+      { partNumber: 3, etag: "three", checksumCRC32C },
     ] })).rejects.toThrow("photo_storage_invalid_parts")
+  })
+
+  it("rejects more than 10000 completion parts", async () => {
+    const { service } = setup()
+    const parts = Array.from({ length: 10001 }, (_, index) => ({
+      partNumber: index + 1,
+      etag: `etag-${index + 1}`,
+      checksumCRC32C,
+    }))
+
+    await expect(service.completeMultipartUpload({ key, uploadId: "upload-1", parts }))
+      .rejects.toThrow("photo_storage_invalid_parts")
   })
 
   it("rejects signatures longer than 900 seconds", async () => {
     const { service } = setup()
-    await expect(service.signUploadPart({ key, uploadId: "upload-1", partNumber: 1, expiresIn: 901 })).rejects.toThrow("photo_storage_invalid_expiry")
+    await expect(service.signUploadPart({ key, uploadId: "upload-1", partNumber: 1, checksumCRC32C, expiresIn: 901 })).rejects.toThrow("photo_storage_invalid_expiry")
   })
 })
 
@@ -53,22 +66,35 @@ describe("PhotoStorageModuleService AWS operations", () => {
 
   it("signs an UploadPart command for at most 900 seconds", async () => {
     const { service, sign } = setup()
-    const result = await service.signUploadPart({ key, uploadId: "upload-1", partNumber: 1, expiresIn: 900 })
+    const result = await service.signUploadPart({ key, uploadId: "upload-1", partNumber: 1, checksumCRC32C, expiresIn: 900 })
     expect(sign.mock.calls[0][2]).toEqual({ expiresIn: 900 })
-    expect(sign.mock.calls[0][1].input).toMatchObject({ ChecksumAlgorithm: "CRC32C", PartNumber: 1, UploadId: "upload-1" })
+    expect(sign.mock.calls[0][1].input).toMatchObject({ ChecksumAlgorithm: "CRC32C", ChecksumCRC32C: checksumCRC32C, PartNumber: 1, UploadId: "upload-1" })
     expect(result.url).toContain("X-Amz-Credential")
-    expect(result.requiredHeaders).toEqual({ "x-amz-sdk-checksum-algorithm": "CRC32C" })
+    expect(result.requiredHeaders).toEqual({ "x-amz-checksum-crc32c": checksumCRC32C, "x-amz-sdk-checksum-algorithm": "CRC32C" })
   })
+  it("binds the caller checksum into the real presigned URL", async () => {
+    const service = new PhotoStorageModuleService({ config })
+
+    const result = await service.signUploadPart({
+      key,
+      uploadId: "upload-1",
+      partNumber: 1,
+      checksumCRC32C,
+    })
+
+    expect(new URL(result.url).searchParams.get("x-amz-checksum-crc32c")).toBe(checksumCRC32C)
+  })
+
 
   it("completes multipart uploads in caller order", async () => {
     const { service, send } = setup([{ ETag: "final", ChecksumCRC32C: "sum" }])
     await expect(service.completeMultipartUpload({ key, uploadId: "upload-1", parts: [
-      { partNumber: 1, etag: "one", checksumCRC32C: "a" },
-      { partNumber: 2, etag: "two", checksumCRC32C: "b" },
+      { partNumber: 1, etag: "one", checksumCRC32C },
+      { partNumber: 2, etag: "two", checksumCRC32C: "T7uE7Q==" },
     ] })).resolves.toEqual({ etag: "final", checksumCRC32C: "sum" })
     expect(send.mock.calls[0][0].input.MultipartUpload.Parts).toEqual([
-      { PartNumber: 1, ETag: "one", ChecksumCRC32C: "a" },
-      { PartNumber: 2, ETag: "two", ChecksumCRC32C: "b" },
+      { PartNumber: 1, ETag: "one", ChecksumCRC32C: checksumCRC32C },
+      { PartNumber: 2, ETag: "two", ChecksumCRC32C: "T7uE7Q==" },
     ])
   })
 

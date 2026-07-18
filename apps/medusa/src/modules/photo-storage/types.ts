@@ -4,6 +4,7 @@ export interface PhotoObjectStorage {
     key: string
     uploadId: string
     partNumber: number
+    checksumCRC32C: string
     expiresIn?: number
   }): Promise<{
     url: string
