@@ -23,16 +23,16 @@ function mutationForbidden(request: NextRequest): NextResponse | null {
     return null
   }
 
-  return NextResponse.json({ error: { code: "photo_job_origin_forbidden" } }, { status: 403 })
+  return NextResponse.json({ error: { code: "photo_job_origin_forbidden" } }, { status: 403, headers: { "cache-control": "no-store" } })
 }
 
 async function proxyJson(response: Response): Promise<NextResponse> {
   const body = await response.json().catch(() => ({ error: { code: "photo_job_unavailable" } }))
-  return NextResponse.json(body, { status: response.status })
+  return NextResponse.json(body, { status: response.status, headers: { "cache-control": "no-store" } })
 }
 
 function unavailableResponse(): NextResponse {
-  return NextResponse.json({ error: { code: "photo_job_unavailable" } }, { status: 502 })
+  return NextResponse.json({ error: { code: "photo_job_unavailable" } }, { status: 502, headers: { "cache-control": "no-store" } })
 }
 
 export async function POST(

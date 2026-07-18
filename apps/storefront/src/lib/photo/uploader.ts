@@ -2,7 +2,7 @@ import { PhotoClientError, type PhotoAssetView, type PhotoJobView, type PhotoUpl
 import type { PhotoClient } from "./client"
 export const MAX_PHOTO_FILES = 500
 export const MAX_PHOTO_JOB_BYTES = 10 * 1024 ** 3
-export const MAX_PHOTO_FILE_BYTES = 500 * 1024 ** 2
+export const MAX_PHOTO_FILE_BYTES = 50 * 1024 ** 2
 export interface UploadProgress { uploadedBytes: number; totalBytes: number; percent: number }
 export interface UploadResult { assetId: string; sessionId: string }
 export interface UploadCallbacks { onProgress?: (progress: UploadProgress) => void; onSession?: (session: PhotoUploadSessionView) => void }
