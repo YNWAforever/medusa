@@ -4,6 +4,9 @@ import { NextResponse } from "next/server"
 export const PHOTO_GUEST_COOKIE = "fm_photo_guest"
 export const PHOTO_GUEST_TTL_SECONDS = 60 * 60 * 24 * 7
 
+const PHOTO_GUEST_SECRET_BYTES = 32
+const PHOTO_GUEST_SECRET_PATTERN = /^[A-Za-z0-9_-]+$/
+
 export const photoGuestCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
@@ -14,6 +17,18 @@ export const photoGuestCookieOptions = {
 
 export function createPhotoGuestSecret(): string {
   return randomBytes(32).toString("base64url")
+}
+
+export function validPhotoGuestSecret(secret?: string | null): secret is string {
+  if (!secret || !PHOTO_GUEST_SECRET_PATTERN.test(secret)) {
+    return false
+  }
+
+  try {
+    return Buffer.from(secret, "base64url").length === PHOTO_GUEST_SECRET_BYTES
+  } catch {
+    return false
+  }
 }
 
 export function createPhotoGuestCookie(secret: string) {

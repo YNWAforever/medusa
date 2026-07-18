@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  createMedusaPhotoJobOperations,
   handleStorePhotoJobClaimPost,
   handleStorePhotoJobDelete,
   handleStorePhotoJobGet,
@@ -40,8 +41,8 @@ function operations(overrides: Partial<PhotoJobOperations> = {}): PhotoJobOperat
     async retrievePhotoJob() {
       return job()
     },
-    async updatePhotoJob(_id, input) {
-      return job(input)
+    async updatePhotoJob(_selector, data) {
+      return job(data)
     },
     async resolveHongKongPhotoProduct() {
       return { regionId: "reg_hk", currencyCode: "hkd" }
@@ -101,6 +102,20 @@ describe("store photo-job ownership", () => {
     expect(res.json).toHaveBeenCalledWith({ photo_jobs: [expect.objectContaining({ id: "phjob_123" })] })
   })
 
+  it("returns an empty list for a first-time guest without resolving an owner", async () => {
+    const listPhotoJobs = vi.fn()
+    const res = response()
+
+    await handleStorePhotoJobsGet(
+      guestRequest({ headers: { get: () => null } }),
+      res,
+      () => operations({ listPhotoJobs }),
+    )
+
+    expect(listPhotoJobs).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith({ photo_jobs: [] })
+  })
+
   it("masks a cross-owner retrieval as not found", async () => {
     await expectCode(
       () => handleStorePhotoJobGet(guestRequest({ params: { id: "phjob_123" } }), response(), () => operations({
@@ -129,8 +144,35 @@ describe("store photo-job ownership", () => {
     )
   })
 
+  it("cancels with a conditional selector containing id, revision, and current guest owner", async () => {
+    const updatePhotoJob = vi.fn(async (_selector: Record<string, unknown>, data: Record<string, unknown>) => job(data))
+    const res = response()
+
+    await handleStorePhotoJobDelete(guestRequest({
+      params: { id: "phjob_123" },
+      headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
+    }), res, () => operations({ updatePhotoJob }))
+
+    expect(updatePhotoJob).toHaveBeenCalledWith(
+      { id: "phjob_123", revision: 4, guest_owner_hash: guestHash, customer_id: null },
+      expect.objectContaining({ status: "cancelled", revision: 5 }),
+    )
+  })
+
+  it("returns a conflict when a concurrent cancellation update matches no rows", async () => {
+    await expectCode(
+      () => handleStorePhotoJobDelete(guestRequest({
+        params: { id: "phjob_123" },
+        headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
+      }), response(), () => operations({
+        updatePhotoJob: async () => null,
+      })),
+      "photo_job_conflict",
+    )
+  })
+
   it("claims a guest job for its authenticated customer", async () => {
-    const updatePhotoJob = vi.fn(async (_id: string, input: Record<string, unknown>) => job(input))
+    const updatePhotoJob = vi.fn(async (_selector: Record<string, unknown>, data: Record<string, unknown>) => job(data))
     const res = response()
 
     await handleStorePhotoJobClaimPost(guestRequest({
@@ -139,11 +181,10 @@ describe("store photo-job ownership", () => {
       headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
     }), res, () => operations({ updatePhotoJob }))
 
-    expect(updatePhotoJob).toHaveBeenCalledWith("phjob_123", expect.objectContaining({
-      guest_owner_hash: null,
-      customer_id: "cus_123",
-      revision: 5,
-    }))
+    expect(updatePhotoJob).toHaveBeenCalledWith(
+      { id: "phjob_123", revision: 4, guest_owner_hash: guestHash, customer_id: null },
+      expect.objectContaining({ guest_owner_hash: null, customer_id: "cus_123", revision: 5 }),
+    )
   })
 
   it("does not reveal a customer-owned job to a different customer during claim", async () => {
@@ -152,6 +193,19 @@ describe("store photo-job ownership", () => {
         params: { id: "phjob_123" },
         auth_context: { actor_id: "cus_123" },
         headers: { get: (name: string) => name === "if-match" ? "3" : null },
+      }), response(), () => operations({
+        retrievePhotoJob: async () => job({ guest_owner_hash: null, customer_id: "cus_other" }),
+      })),
+      "photo_job_not_found",
+    )
+  })
+
+  it("checks claim ownership before revision to avoid enumerating another customer's job", async () => {
+    await expectCode(
+      () => handleStorePhotoJobClaimPost(guestRequest({
+        params: { id: "phjob_123" },
+        auth_context: { actor_id: "cus_123" },
+        headers: { get: () => null },
       }), response(), () => operations({
         retrievePhotoJob: async () => job({ guest_owner_hash: null, customer_id: "cus_other" }),
       })),
@@ -174,5 +228,97 @@ describe("store photo-job ownership", () => {
 
     expect(updatePhotoJob).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith({ photo_job: expect.objectContaining({ id: "phjob_123" }) })
+  })
+
+  it("treats a same-customer claim retry at the original revision as idempotent after the claim advanced once", async () => {
+    const updatePhotoJob = vi.fn()
+    const res = response()
+
+    await handleStorePhotoJobClaimPost(guestRequest({
+      params: { id: "phjob_123" },
+      auth_context: { actor_id: "cus_123" },
+      headers: { get: (name: string) => name === "if-match" ? "4" : null },
+    }), res, () => operations({
+      retrievePhotoJob: async () => job({ guest_owner_hash: null, customer_id: "cus_123", revision: 5 }),
+      updatePhotoJob,
+    }))
+
+    expect(updatePhotoJob).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith({ photo_job: expect.objectContaining({
+      id: "phjob_123",
+      revision: 5,
+    }) })
+  })
+
+  it("returns a conflict for unrelated stale same-customer claim revisions", async () => {
+    await expectCode(
+      () => handleStorePhotoJobClaimPost(guestRequest({
+        params: { id: "phjob_123" },
+        auth_context: { actor_id: "cus_123" },
+        headers: { get: (name: string) => name === "if-match" ? "3" : null },
+      }), response(), () => operations({
+        retrievePhotoJob: async () => job({ guest_owner_hash: null, customer_id: "cus_123", revision: 5 }),
+      })),
+      "photo_job_conflict",
+    )
+  })
+
+  it("returns idempotent success when a conditional claim update loses the response but the owner changed to the same customer", async () => {
+    const retrievePhotoJob = vi
+      .fn()
+      .mockResolvedValueOnce(job())
+      .mockResolvedValueOnce(job({ guest_owner_hash: null, customer_id: "cus_123", revision: 5 }))
+    const res = response()
+
+    await handleStorePhotoJobClaimPost(guestRequest({
+      params: { id: "phjob_123" },
+      auth_context: { actor_id: "cus_123" },
+      headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
+    }), res, () => operations({
+      retrievePhotoJob,
+      updatePhotoJob: async () => null,
+    }))
+
+    expect(retrievePhotoJob).toHaveBeenCalledTimes(2)
+    expect(res.json).toHaveBeenCalledWith({ photo_job: expect.objectContaining({
+      id: "phjob_123",
+      revision: 5,
+    }) })
+  })
+
+  it("returns a conflict when a conditional claim update matches no rows for another change", async () => {
+    const retrievePhotoJob = vi
+      .fn()
+      .mockResolvedValueOnce(job())
+      .mockResolvedValueOnce(job({ revision: 6 }))
+
+    await expectCode(
+      () => handleStorePhotoJobClaimPost(guestRequest({
+        params: { id: "phjob_123" },
+        auth_context: { actor_id: "cus_123" },
+        headers: { get: (name: string) => name === "x-fotomax-guest-token" ? guestSecret : name === "if-match" ? "4" : null },
+      }), response(), () => operations({
+        retrievePhotoJob,
+        updatePhotoJob: async () => null,
+      })),
+      "photo_job_conflict",
+    )
+  })
+
+  it("adapts generated updatePhotoJobs selector/data calls and treats no match as null", async () => {
+    const updatePhotoJobs = vi
+      .fn()
+      .mockResolvedValueOnce([job({ revision: 5 })])
+      .mockResolvedValueOnce([])
+    const scope = {
+      resolve: vi.fn((key: unknown) => key === "photoProduction" ? { updatePhotoJobs } : {}),
+    }
+    const operations = createMedusaPhotoJobOperations(scope as never)
+    const selector = { id: "phjob_123", revision: 4, guest_owner_hash: guestHash, customer_id: null }
+    const data = { revision: 5 }
+
+    await expect(operations.updatePhotoJob(selector, data)).resolves.toEqual(expect.objectContaining({ revision: 5 }))
+    await expect(operations.updatePhotoJob(selector, data)).resolves.toBeNull()
+    expect(updatePhotoJobs).toHaveBeenCalledWith({ selector, data })
   })
 })

@@ -40,7 +40,10 @@ export interface PhotoJobOperations {
   createPhotoJob(input: Record<string, unknown>): Promise<PhotoJobRecord>
   listPhotoJobs(filters: Record<string, unknown>): Promise<PhotoJobRecord[]>
   retrievePhotoJob(id: string): Promise<PhotoJobRecord | null>
-  updatePhotoJob(id: string, input: Record<string, unknown>): Promise<PhotoJobRecord>
+  updatePhotoJob(
+    selector: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ): Promise<PhotoJobRecord | null>
   resolveHongKongPhotoProduct(): Promise<{ regionId: string; currencyCode: string }>
 }
 
@@ -108,6 +111,10 @@ function ownerContext(req: StorePhotoJobsHandlerRequest): PhotoOwnerContext {
   })
 }
 
+function hasOwnerContext(req: StorePhotoJobsHandlerRequest): boolean {
+  return Boolean(customerId(req) || guestSecret(req))
+}
+
 function jobId(req: StorePhotoJobsHandlerRequest): string {
   const id = req.params?.id?.trim()
   if (!id) {
@@ -158,10 +165,26 @@ function assertVisible(job: PhotoJobRecord | null, req: StorePhotoJobsHandlerReq
   return job
 }
 
-function assertRevision(job: PhotoJobRecord, req: StorePhotoJobsHandlerRequest): void {
-  if (readRevision(req) !== job.revision) {
-    throw conflict()
+function ownerRevisionSelector(job: PhotoJobRecord, expectedRevision: number): Record<string, unknown> {
+  return {
+    id: job.id,
+    revision: expectedRevision,
+    guest_owner_hash: job.guest_owner_hash ?? null,
+    customer_id: job.customer_id ?? null,
   }
+}
+
+function isSameCustomerClaimRetry(
+  job: PhotoJobRecord | null,
+  customerId: string,
+  expectedRevision: number,
+): job is PhotoJobRecord {
+  return Boolean(
+    job
+    && !isExpired(job)
+    && job.customer_id === customerId
+    && (job.revision === expectedRevision || job.revision === expectedRevision + 1),
+  )
 }
 
 function outputPhotoJob(job: PhotoJobRecord): Record<string, unknown> {
@@ -196,6 +219,10 @@ function parseCreateBody(body: unknown): { locale: "en" | "zh-HK" } {
   return { locale }
 }
 
+function isGeneratedNotFound(error: unknown): boolean {
+  return error instanceof Error && /not found|no .*found/i.test(error.message)
+}
+
 export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): PhotoJobOperations {
   const query = scope.resolve(ContainerRegistrationKeys.QUERY)
   const photoProductionService = scope.resolve<PhotoProductionModuleService>(
@@ -213,14 +240,25 @@ export function createMedusaPhotoJobOperations(scope: MedusaRequest["scope"]): P
       try {
         return await photoProductionService.retrievePhotoJob(id)
       } catch (error) {
-        if (error instanceof Error && /not found/i.test(error.message)) {
+        if (isGeneratedNotFound(error)) {
           return null
         }
         throw error
       }
     },
-    async updatePhotoJob(id, input) {
-      return photoProductionService.updatePhotoJobs({ id, ...input })
+    async updatePhotoJob(selector, data) {
+      try {
+        const result = await photoProductionService.updatePhotoJobs({ selector, data })
+        if (Array.isArray(result)) {
+          return result[0] ?? null
+        }
+        return result ?? null
+      } catch (error) {
+        if (isGeneratedNotFound(error)) {
+          return null
+        }
+        throw error
+      }
     },
     async resolveHongKongPhotoProduct() {
       const regionResult = await query.graph({
@@ -291,6 +329,11 @@ export async function handleStorePhotoJobsGet<Scope>(
   res: StorePhotoJobsHandlerResponse,
   createOperations: (scope: Scope) => PhotoJobOperations,
 ): Promise<void> {
+  if (!hasOwnerContext(req)) {
+    res.json({ photo_jobs: [] })
+    return
+  }
+
   const owner = ownerContext(req)
   const jobs = await createOperations(req.scope as Scope).listPhotoJobs(ownerFilter(owner))
   res.json({ photo_jobs: outputPhotoJobs(jobs) })
@@ -316,14 +359,20 @@ export async function handleStorePhotoJobDelete<Scope>(
   const operations = createOperations(req.scope as Scope)
   const id = jobId(req)
   const job = assertVisible(await operations.retrievePhotoJob(id), req)
-  assertRevision(job, req)
+  const expectedRevision = readRevision(req)
+  if (expectedRevision !== job.revision) {
+    throw conflict()
+  }
 
-  const updated = await operations.updatePhotoJob(id, {
+  const updated = await operations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
     status: "cancelled",
     revision: job.revision + 1,
     cancelled_at: new Date(),
     last_activity_at: new Date(),
   })
+  if (!updated) {
+    throw conflict()
+  }
   res.json({ photo_job: outputPhotoJob(updated) })
 }
 
@@ -345,9 +394,12 @@ export async function handleStorePhotoJobClaimPost<Scope>(
   }
 
   if (job.customer_id === currentCustomerId) {
-    assertRevision(job, req)
-    res.json({ photo_job: outputPhotoJob(job) })
-    return
+    const expectedRevision = readRevision(req)
+    if (isSameCustomerClaimRetry(job, currentCustomerId, expectedRevision)) {
+      res.json({ photo_job: outputPhotoJob(job) })
+      return
+    }
+    throw conflict()
   }
   if (job.customer_id || !job.guest_owner_hash) {
     throw notFound()
@@ -358,14 +410,27 @@ export async function handleStorePhotoJobClaimPost<Scope>(
     throw notFound()
   }
 
-  assertRevision(job, req)
-  const updated = await operations.updatePhotoJob(id, {
+  const expectedRevision = readRevision(req)
+  if (expectedRevision !== job.revision) {
+    throw conflict()
+  }
+  const updated = await operations.updatePhotoJob(ownerRevisionSelector(job, expectedRevision), {
     guest_owner_hash: null,
     customer_id: currentCustomerId,
     revision: job.revision + 1,
     last_activity_at: new Date(),
   })
-  res.json({ photo_job: outputPhotoJob(updated) })
+  if (updated) {
+    res.json({ photo_job: outputPhotoJob(updated) })
+    return
+  }
+
+  const latest = await operations.retrievePhotoJob(id)
+  if (isSameCustomerClaimRetry(latest, currentCustomerId, expectedRevision)) {
+    res.json({ photo_job: outputPhotoJob(latest) })
+    return
+  }
+  throw conflict()
 }
 
 export async function POST(

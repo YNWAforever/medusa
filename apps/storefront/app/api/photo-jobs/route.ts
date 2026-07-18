@@ -8,6 +8,7 @@ import {
   isAllowedPhotoMutationOrigin,
   PHOTO_GUEST_COOKIE,
   photoJobResponse,
+  validPhotoGuestSecret,
   photoRequestHeaders,
 } from "../../../src/lib/photo/ownership"
 
@@ -46,6 +47,25 @@ async function proxyJson(response: Response, guestSecret?: string): Promise<Next
   return photoJobResponse(body, guestSecret, response.status)
 }
 
+async function parseOptionalJsonBody(request: NextRequest): Promise<unknown> {
+  const rawBody = await request.text()
+  if (!rawBody.trim()) {
+    return {}
+  }
+
+  return JSON.parse(rawBody)
+}
+
+function requestGuestSecret(request: NextRequest): string | undefined {
+  const customerToken = request.cookies.get(CUSTOMER_TOKEN_COOKIE)?.value
+  if (customerToken) {
+    return undefined
+  }
+
+  const guestSecret = request.cookies.get(PHOTO_GUEST_COOKIE)?.value
+  return validPhotoGuestSecret(guestSecret) ? guestSecret : undefined
+}
+
 function unavailableResponse(): NextResponse {
   return NextResponse.json({ error: { code: "photo_job_unavailable" } }, { status: 502 })
 }
@@ -56,7 +76,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       headers: medusaHeaders(request),
       cache: "no-store",
     })
-    return proxyJson(response)
+    return proxyJson(response, requestGuestSecret(request))
   } catch {
     return unavailableResponse()
   }
@@ -74,6 +94,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ? undefined
     : createPhotoGuestSecret()
   const guestSecret = existingGuestSecret ?? generatedGuestSecret
+  const responseGuestSecret = generatedGuestSecret ?? (
+    customerToken ? undefined : validPhotoGuestSecret(existingGuestSecret) ? existingGuestSecret : undefined
+  )
+
+  let body: unknown
+  try {
+    body = await parseOptionalJsonBody(request)
+  } catch {
+    return NextResponse.json({ error: { code: "invalid_photo_job_input" } }, { status: 400 })
+  }
 
   try {
     const response = await fetch(endpoint("/store/photo-jobs"), {
@@ -86,10 +116,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           "content-type": "application/json",
         },
       }),
-      body: JSON.stringify(await request.json().catch(() => ({}))),
+      body: JSON.stringify(body),
       cache: "no-store",
     })
-    return proxyJson(response, generatedGuestSecret)
+    return proxyJson(response, responseGuestSecret)
   } catch {
     return unavailableResponse()
   }
