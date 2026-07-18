@@ -66,6 +66,9 @@ function parseParts(value: unknown) {
 }
 function assertTransition(run: () => void): void { try { run() } catch { transitionConflict() } }
 function storageMissing(error: unknown): boolean { return error instanceof PhotoStorageError && error.code === "photo_storage_not_found" }
+function firstUpdated<T>(result: T | T[] | null | undefined): T | null {
+  return Array.isArray(result) ? result[0] ?? null : result ?? null
+}
 
 export async function handleCreateUpload(req: Request, res: Response, operations: UploadOperations): Promise<void> {
   const jobId = param(req, "id")
@@ -119,7 +122,7 @@ async function inspectStoredObject(operations: UploadOperations, asset: UploadAs
 export async function handleComplete(req: Request, res: Response, operations: UploadOperations): Promise<void> {
   let found = await operations.findOwnedSession(req, param(req, "id"), param(req, "sessionId"))
   if (found.session.status === "completed" && found.asset.status === "uploaded") { res.json({ asset: safeAsset(found.asset) }); return }
-  if (!sessionUsable(found.session)) conflict(found.session.status === "active" ? "photo_upload_expired" : "photo_upload_not_active")
+  if (found.session.status !== "active") conflict("photo_upload_not_active")
   const parts = parseParts(body(req.body).parts)
 
   let objectExists = true
@@ -128,6 +131,7 @@ export async function handleComplete(req: Request, res: Response, operations: Up
     objectExists = false
   }
   if (!objectExists) {
+    if (!sessionUsable(found.session)) conflict("photo_upload_expired")
     await operations.storage.completeMultipartUpload({ key: found.asset.object_key, uploadId: found.session.provider_upload_id || conflict("photo_upload_not_active"), parts })
   }
 
@@ -203,9 +207,9 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
         assertTransition(() => assertUploadSessionTransition(latestSession.status as PhotoUploadSessionStatus, target))
         const assetTarget = target === "completed" ? "uploaded" : "failed"
         assertTransition(() => assertPhotoAssetTransition(latestAsset.status as PhotoAssetStatus, assetTarget))
-        const updatedSession = await service.updatePhotoUploadSessions({ selector: { id: session.id, status: "active" }, data: target === "completed" ? { status: target, completed_at: new Date() } : { status: target, aborted_at: new Date() } }, context)
+        const updatedSession = firstUpdated(await service.updatePhotoUploadSessions({ selector: { id: session.id, status: "active" }, data: target === "completed" ? { status: target, completed_at: new Date() } : { status: target, aborted_at: new Date() } }, context))
         if (!updatedSession) transitionConflict()
-        const updatedAsset = await service.updatePhotoAssets({ selector: { id: asset.id, status: "uploading" }, data: target === "completed" ? { status: assetTarget, stored_bytes: asset.expected_bytes, crc32c: code, uploaded_at: new Date(), failure_code: null } : { status: assetTarget, failure_code: code || "retry", failed_at: new Date() } }, context)
+        const updatedAsset = firstUpdated(await service.updatePhotoAssets({ selector: { id: asset.id, status: "uploading" }, data: target === "completed" ? { status: assetTarget, stored_bytes: asset.expected_bytes, crc32c: code, uploaded_at: new Date(), failure_code: null } : { status: assetTarget, failure_code: code || "retry", failed_at: new Date() } }, context))
         if (!updatedAsset) transitionConflict()
         return updatedAsset
       }, { isolationLevel: "SERIALIZABLE" })
@@ -233,7 +237,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
           const asset = await service.createPhotoAssets({ job_id: input.jobId, display_name: input.displayName, object_key: input.objectKey, reported_mime_type: input.reportedMime, detected_mime_type: input.detectedMime, expected_bytes: input.expectedBytes, status: "uploading", upload_started_at: new Date() }, context)
           const session = await service.createPhotoUploadSessions({ asset_id: asset.id, source_idempotency_key: input.idempotencyKey, provider_upload_id: input.providerUploadId, part_size: PART_SIZE, expected_bytes: input.expectedBytes, status: "active", expires_at: input.expiresAt }, context)
           if (job.status !== "uploading") {
-            const updated = await service.updatePhotoJobs({ selector: { id: input.jobId, status: job.status }, data: { status: "uploading", upload_started_at: new Date(), last_activity_at: new Date() } }, context)
+            const updated = firstUpdated(await service.updatePhotoJobs({ selector: { id: input.jobId, status: job.status }, data: { status: "uploading", upload_started_at: new Date(), last_activity_at: new Date() } }, context))
             if (!updated) transitionConflict()
           }
           return { asset, session, created: true }

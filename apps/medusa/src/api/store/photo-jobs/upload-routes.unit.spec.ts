@@ -55,6 +55,16 @@ describe("hardened multipart upload lifecycle", () => {
     expect(operations.completeSession).toHaveBeenCalled()
   })
 
+  it("reconciles an existing provider object after session expiry", async () => {
+    const operations = ops({
+      findOwnedSession: vi.fn(async () => ({ asset, session: { ...session, expires_at: new Date(0) } })),
+    })
+
+    await handleComplete(req({ parts }, { id: "phjob_1", sessionId: "phups_1" }), res(), operations)
+    expect(operations.storage.completeMultipartUpload).not.toHaveBeenCalled()
+    expect(operations.completeSession).toHaveBeenCalled()
+  })
+
   it("completes a missing object then validates the actual stored signature", async () => {
     const storage = ops().storage
     ;(storage.headPrivateObject as ReturnType<typeof vi.fn>)
@@ -154,8 +164,8 @@ describe("serializable upload operations", () => {
       }),
       listPhotoUploadSessions: vi.fn(async () => [session]),
       retrievePhotoAsset: vi.fn(async () => asset),
-      updatePhotoUploadSessions: vi.fn(async () => ({ ...session, status: "completed" })),
-      updatePhotoAssets: vi.fn(async () => uploaded),
+      updatePhotoUploadSessions: vi.fn(async () => [{ ...session, status: "completed" }]),
+      updatePhotoAssets: vi.fn(async () => [uploaded]),
     }
     const operations = medusaOperations(service)
     await expect(operations.completeSession(asset, session, { bytes: 12, checksumCRC32C: "hRHAOg==" })).resolves.toEqual(uploaded)
@@ -163,6 +173,23 @@ describe("serializable upload operations", () => {
     expect(service.retrievePhotoAsset).toHaveBeenCalledWith(asset.id, undefined, context)
     expect(service.updatePhotoUploadSessions).toHaveBeenCalledWith(expect.objectContaining({ selector: { id: session.id, status: "active" } }), context)
     expect(service.updatePhotoAssets).toHaveBeenCalledWith(expect.objectContaining({ selector: { id: asset.id, status: "uploading" } }), context)
+  })
+
+  it("rejects empty conditional-update arrays", async () => {
+    const service = {
+      withPhotoJobTransaction: vi.fn(async (callback) => callback({ transactionManager: {} })),
+      listPhotoUploadSessions: vi.fn(async () => [session]),
+      retrievePhotoAsset: vi.fn(async () => asset),
+      updatePhotoUploadSessions: vi.fn(async () => []),
+      updatePhotoAssets: vi.fn(),
+    }
+    const operations = medusaOperations(service)
+
+    await expect(operations.completeSession(asset, session, {
+      bytes: 12,
+      checksumCRC32C: "hRHAOg==",
+    })).rejects.toThrow("photo_upload_not_active")
+    expect(service.updatePhotoAssets).not.toHaveBeenCalled()
   })
 
   it("rejects terminal overwrite before conditional updates", async () => {
