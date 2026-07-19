@@ -23,3 +23,10 @@ Task 3: complete (commits `3ab1680`, `4afbfc5`; private storage and checksum bin
 Task 4: complete (commits `aba2c11`..`7d070b9`; resumable multipart API and lifecycle hardening, independent review approved)
 Task 5: complete (commits `c441a09`..`68ef45a`; bilingual upload workspace, reload recovery, durable removal, no-store responses, independent review approved)
 Task 6: complete (cleanup job, real-service integration specification, mocked desktop/mobile E2E, production compile, verification evidence, and independent-review fixes for cleanup fairness, active cancellation, and scoped idempotency; real-service execution unavailable because Docker/PostgreSQL/Redis/MinIO were not running)
+
+## Phase 2B Photo Production
+
+Branch: `codex/fotomax-phase-2b-image-processing`
+Plan: `docs/superpowers/plans/2026-07-11-fotomax-phase-2b-photo-production.md`
+
+Task 5: complete (`31ed286` plus review hardening; private image processing, transient retry/dead-letter handling, concurrency-safe state updates, encrypted previews, audited admin retry, 499 unit tests, and both typechecks pass; live PostgreSQL/Redis/S3 smoke test remains environment-blocked)

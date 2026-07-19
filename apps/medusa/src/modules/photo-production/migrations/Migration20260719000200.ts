@@ -11,6 +11,7 @@ export class Migration20260719000200 extends Migration {
   async down(): Promise<void> {
     this.addSql('drop index if exists "IDX_photo_asset_job_sha256_ready";')
     this.addSql('drop index if exists "IDX_photo_asset_preview_key_unique";')
+    this.addSql('update "photo_asset" set "status" = case when "status" = \'ready\' then \'uploaded\' when "status" in (\'processing\', \'blocked\') then \'failed\' else "status" end;')
     this.addSql('alter table "photo_asset" drop constraint if exists "photo_asset_status_check";')
     this.addSql('alter table "photo_asset" add constraint "photo_asset_status_check" check ("status" in (\'pending\', \'uploading\', \'uploaded\', \'failed\', \'deleted\'));')
     this.addSql('alter table "photo_asset" drop column if exists "preview_key", drop column if exists "sha256", drop column if exists "width", drop column if exists "height", drop column if exists "orientation", drop column if exists "quality_band", drop column if exists "estimated_ppi", drop column if exists "warnings", drop column if exists "errors", drop column if exists "processing_attempts", drop column if exists "failure_class", drop column if exists "dead_lettered_at", drop column if exists "last_activity_at", drop column if exists "deletion_requested_at";')

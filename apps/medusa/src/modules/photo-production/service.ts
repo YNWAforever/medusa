@@ -4,6 +4,7 @@ import {
   MedusaService,
 } from "@medusajs/framework/utils"
 import PhotoAsset from "./models/photo-asset"
+import PhotoAssetAccessAudit from "./models/photo-asset-access-audit"
 import PhotoJob from "./models/photo-job"
 import PhotoUploadSession from "./models/photo-upload-session"
 
@@ -29,6 +30,7 @@ const PhotoProductionModuleServiceBase = MedusaService({
   PhotoJob,
   PhotoAsset,
   PhotoUploadSession,
+  PhotoAssetAccessAudit,
 })
 
 type GeneratedCreatePhotoJobs = InstanceType<typeof PhotoProductionModuleServiceBase>["createPhotoJobs"]
