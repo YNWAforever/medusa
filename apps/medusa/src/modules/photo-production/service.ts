@@ -6,7 +6,9 @@ import {
 import PhotoAsset from "./models/photo-asset"
 import PhotoAssetAccessAudit from "./models/photo-asset-access-audit"
 import PhotoJob from "./models/photo-job"
+import PhotoJobVersion from "./models/photo-job-version"
 import PhotoUploadSession from "./models/photo-upload-session"
+import PrintItem from "./models/print-item"
 
 export type CreatePhotoJobInput = {
   guest_owner_hash?: string | null
@@ -31,6 +33,8 @@ const PhotoProductionModuleServiceBase = MedusaService({
   PhotoAsset,
   PhotoUploadSession,
   PhotoAssetAccessAudit,
+  PhotoJobVersion,
+  PrintItem,
 })
 
 type GeneratedCreatePhotoJobs = InstanceType<typeof PhotoProductionModuleServiceBase>["createPhotoJobs"]

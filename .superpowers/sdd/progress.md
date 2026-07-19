@@ -26,7 +26,9 @@ Task 6: complete (cleanup job, real-service integration specification, mocked de
 
 ## Phase 2B Photo Production
 
-Branch: `codex/fotomax-phase-2b-image-processing`
+Branches: `codex/fotomax-phase-2b-image-processing`, `codex/fotomax-phase-2b-versions-quotes`
 Plan: `docs/superpowers/plans/2026-07-11-fotomax-phase-2b-photo-production.md`
 
 Task 5: complete (`31ed286` plus review hardening; private image processing, transient retry/dead-letter handling, concurrency-safe state updates, encrypted previews, audited admin retry, 499 unit tests, and both typechecks pass; live PostgreSQL/Redis/S3 smoke test remains environment-blocked)
+
+Task 6: complete (immutable print versions, normalized crop/override and quality acknowledgement rules, optimistic revision/idempotency handling, live HKD variant pricing, atomic 15-minute quotes, deterministic manifests, price-change replacement versions, owner-scoped Store APIs, and same-origin BFF routes; 320 Medusa and 213 storefront tests plus both typechecks pass; live migration generation/execution remains infrastructure-blocked)

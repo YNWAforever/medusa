@@ -1,4 +1,4 @@
-﻿import { model } from "@medusajs/framework/utils"
+import { model } from "@medusajs/framework/utils"
 
 const PhotoJob = model.define("photo_job", {
   id: model.id({ prefix: "phjob" }).primaryKey(),
@@ -13,6 +13,7 @@ const PhotoJob = model.define("photo_job", {
     .default("draft")
     .index(),
   revision: model.number().default(0),
+  active_version_id: model.text().nullable(),
   retention_class: model.text(),
   last_activity_at: model.dateTime(),
   upload_started_at: model.dateTime().nullable(),
