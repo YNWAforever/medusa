@@ -76,6 +76,9 @@ function ops(overrides: Partial<UploadOperations> = {}): UploadOperations {
         checksumCRC32C: "hRHAOg==",
       })),
       readPrivateObjectPrefix: vi.fn(async () => jpeg),
+      readPrivateObject: vi.fn(),
+      writePrivatePreview: vi.fn(),
+      signPrivateRead: vi.fn(),
       deletePrivateObjects: vi.fn(),
     },
     ...overrides,
@@ -270,12 +273,13 @@ describe("hardened multipart upload lifecycle", () => {
 describe("serializable upload operations", () => {
   function medusaOperations(service: Record<string, any>) {
     const storage = ops().storage;
+    const eventBus = { emit: vi.fn() };
     return createMedusaUploadOperations({
       headers: { get: () => null },
       auth_context: { actor_id: "cus_1" },
       scope: {
         resolve: (name: string) =>
-          name.includes("storage") ? storage : service,
+          name === "event_bus" ? eventBus : name.includes("storage") ? storage : service,
       },
     });
   }

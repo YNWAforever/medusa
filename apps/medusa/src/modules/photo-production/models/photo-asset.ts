@@ -1,5 +1,5 @@
-import { model } from "@medusajs/framework/utils";
-import PhotoJob from "./photo-job";
+import { model } from "@medusajs/framework/utils"
+import PhotoJob from "./photo-job"
 
 const PhotoAsset = model.define("photo_asset", {
   id: model.id({ prefix: "phast" }).primaryKey(),
@@ -11,15 +11,26 @@ const PhotoAsset = model.define("photo_asset", {
   expected_bytes: model.number(),
   stored_bytes: model.number().nullable(),
   crc32c: model.text().nullable(),
-  status: model
-    .enum(["pending", "uploading", "uploaded", "failed", "deleted"])
-    .default("pending")
-    .index(),
+  preview_key: model.text().unique().nullable(),
+  sha256: model.text().nullable(),
+  width: model.number().nullable(),
+  height: model.number().nullable(),
+  orientation: model.number().nullable(),
+  quality_band: model.text().nullable(),
+  estimated_ppi: model.number().nullable(),
+  warnings: model.json().nullable(),
+  errors: model.json().nullable(),
+  processing_attempts: model.number().default(0),
+  status: model.enum(["pending", "uploading", "uploaded", "processing", "ready", "blocked", "failed", "deleted"]).default("pending").index(),
   failure_code: model.text().nullable(),
+  failure_class: model.text().nullable(),
+  dead_lettered_at: model.dateTime().nullable(),
   upload_started_at: model.dateTime().nullable(),
   uploaded_at: model.dateTime().nullable(),
   failed_at: model.dateTime().nullable(),
+  last_activity_at: model.dateTime().nullable(),
+  deletion_requested_at: model.dateTime().nullable(),
   provider_cleanup_completed_at: model.dateTime().nullable(),
-});
+})
 
-export default PhotoAsset;
+export default PhotoAsset

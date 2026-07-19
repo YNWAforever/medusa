@@ -1,3 +1,4 @@
+import { Readable } from "node:stream"
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
@@ -5,6 +6,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
   type S3ClientConfig,
@@ -17,8 +19,10 @@ import {
   type PhotoStorageConfig,
 } from "./types"
 
-const KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/originals\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const ORIGINAL_KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/originals\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PREVIEW_KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/previews\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i
 const MAX_SIGNATURE_SECONDS = 900
+const MAX_PREVIEW_SIGNATURE_SECONDS = 300
 const CRC32C_PATTERN = /^[A-Za-z0-9+/]{6}==$/
 
 type CommandClient = { send(command: unknown): Promise<any> }
@@ -30,7 +34,7 @@ type Dependencies = {
 }
 
 function validateKey(key: string): void {
-  if (!KEY_PATTERN.test(key)) throw new PhotoStorageError("photo_storage_invalid_key")
+  if (!ORIGINAL_KEY_PATTERN.test(key) && !PREVIEW_KEY_PATTERN.test(key)) throw new PhotoStorageError("photo_storage_invalid_key")
 }
 
 function validatePart(partNumber: number): void {
@@ -180,6 +184,30 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
     }
   }
 
+  async readPrivateObject(key: string): Promise<Readable> {
+    validateKey(key)
+    try {
+      const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }))
+      if (!result.Body || typeof result.Body.pipe !== "function") throw providerError()
+      return result.Body as Readable
+    } catch (error) {
+      if (error instanceof PhotoStorageError) throw error
+      if (isNotFound(error)) throw new PhotoStorageError("photo_storage_not_found")
+      throw providerError()
+    }
+  }
+
+  async writePrivatePreview(input: { key: string; bytes: Buffer; contentType: "image/jpeg" }): Promise<void> {
+    validateKey(input.key)
+    if (!PREVIEW_KEY_PATTERN.test(input.key) || input.contentType !== "image/jpeg") throw new PhotoStorageError("photo_storage_invalid_key")
+    try { await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: input.key, Body: input.bytes, ContentType: input.contentType, ServerSideEncryption: "AES256" })) } catch { throw providerError() }
+  }
+
+  async signPrivateRead(key: string, expiresIn = MAX_PREVIEW_SIGNATURE_SECONDS): Promise<{ url: string; expiresAt: string }> {
+    validateKey(key)
+    if (!PREVIEW_KEY_PATTERN.test(key) || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_PREVIEW_SIGNATURE_SECONDS) throw new PhotoStorageError("photo_storage_invalid_expiry")
+    try { const url = await this.presign(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { expiresIn }); return { url, expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() } } catch { throw providerError() }
+  }
   async deletePrivateObjects(keys: string[]): Promise<void> {
     keys.forEach(validateKey)
     try {

@@ -673,12 +673,17 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
       return { asset, session };
     },
     async completeSession(asset, session, result) {
-      return mutateTerminal(
+      const completed = await mutateTerminal(
         { ...asset, expected_bytes: result.bytes },
         session,
         "completed",
         result.checksumCRC32C,
       );
+      await req.scope.resolve("event_bus").emit({
+        name: "photo_asset.uploaded",
+        data: { asset_id: completed.id },
+      });
+      return completed;
     },
     async abortSession(asset, session) {
       return mutateTerminal(asset, session, "aborted", "retry");
