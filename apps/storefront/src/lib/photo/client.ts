@@ -38,6 +38,21 @@ export function createPhotoClient(fetcher: Fetcher = fetch) {
       );
       return body.photo_job ?? body.job ?? (body as unknown as PhotoJobView);
     },
+    async createVersion(jobId: string, input: Record<string, unknown>): Promise<{ version: { id: string }; items: unknown[]; jobRevision: number }> {
+      return json(fetcher, `/api/photo-jobs/${encodeURIComponent(jobId)}/versions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify(input),
+      })
+    },
+    async quoteVersion(jobId: string, versionId: string): Promise<{ versionId: string; subtotal: number; currencyCode: string; quotedAt: string; quoteExpiresAt: string; manifestDigest: string; requiresReview?: boolean }> {
+      const body = await json<{ quote: { versionId: string; subtotal: number; currencyCode: string; quotedAt: string; quoteExpiresAt: string; manifestDigest: string; requiresReview?: boolean } }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/quote`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ versionId }) },
+      )
+      return body.quote
+    },
     async createUpload(
       jobId: string,
       input: {

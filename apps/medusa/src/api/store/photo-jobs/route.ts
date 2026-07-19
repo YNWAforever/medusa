@@ -29,6 +29,7 @@ export interface PhotoJobRecord {
   product_handle: string
   status: string
   revision: number
+  active_version_id?: string | null
   retention_class: string
   last_activity_at: Date | string
   upload_started_at?: Date | string | null
@@ -44,6 +45,9 @@ export interface PhotoJobOperations {
   createPhotoJob(input: Record<string, unknown>): Promise<PhotoJobRecord>
   listPhotoJobs(filters: Record<string, unknown>): Promise<PhotoJobRecord[]>
   retrievePhotoJob(id: string): Promise<PhotoJobRecord | null>
+  listPhotoAssets(jobId: string): Promise<Array<Record<string, unknown>>>
+  retrievePhotoJobVersion(id: string): Promise<Record<string, unknown> | null>
+  listPrintItems(versionId: string): Promise<Array<Record<string, unknown>>>
   updatePhotoJob(
     selector: Record<string, unknown>,
     data: Record<string, unknown>,
@@ -207,6 +211,33 @@ function outputPhotoJobs(jobs: PhotoJobRecord[]): Array<Record<string, unknown>>
   return jobs.filter((job) => !isExpired(job)).map(outputPhotoJob)
 }
 
+function outputPhotoAsset(asset: Record<string, unknown>): Record<string, unknown> {
+  const safeFields = [
+    "id", "display_name", "expected_bytes", "stored_bytes", "detected_mime_type",
+    "status", "failure_code", "width", "height", "orientation", "quality_band",
+    "estimated_ppi", "warnings", "errors", "processing_attempts",
+  ] as const
+  return Object.fromEntries(
+    safeFields.filter((field) => field in asset).map((field) => [field, asset[field]]),
+  )
+}
+function outputPrintItem(item: Record<string, unknown>): Record<string, unknown> {
+  const safeFields = [
+    "asset_id", "finish", "border", "crop_mode", "crop", "quantity",
+    "warning_acknowledgements",
+  ] as const
+  return Object.fromEntries(
+    safeFields.filter((field) => field in item).map((field) => [field, item[field]]),
+  )
+}
+
+function outputActiveVersion(
+  version: Record<string, unknown>,
+  items: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  return { id: version.id, defaults: version.defaults, items: items.map(outputPrintItem) }
+}
+
 function parseCreateBody(body: unknown): { locale: "en" | "zh-HK" } {
   if (body === undefined || body === null) {
     return { locale: "en" }
@@ -265,6 +296,27 @@ export function createMedusaPhotoJobOperations(
         }
         throw error
       }
+    },
+    async listPhotoAssets(jobId) {
+      const assets = sharedContext
+        ? await photoProductionService.listPhotoAssets({ job_id: jobId }, {}, sharedContext as never)
+        : await photoProductionService.listPhotoAssets({ job_id: jobId })
+      return assets.filter((asset: { status?: string }) => asset.status !== "deleted")
+    },
+    async retrievePhotoJobVersion(id) {
+      try {
+        return sharedContext
+          ? await photoProductionService.retrievePhotoJobVersion(id, {}, sharedContext as never)
+          : await photoProductionService.retrievePhotoJobVersion(id)
+      } catch (error) {
+        if (error instanceof Error && /not found|no .*found/i.test(error.message)) return null
+        throw error
+      }
+    },
+    async listPrintItems(versionId) {
+      return sharedContext
+        ? photoProductionService.listPrintItems({ version_id: versionId }, {}, sharedContext as never)
+        : photoProductionService.listPrintItems({ version_id: versionId })
     },
     async updatePhotoJob(selector, data) {
       try {
@@ -386,11 +438,25 @@ export async function handleStorePhotoJobGet<Scope>(
   res: StorePhotoJobsHandlerResponse,
   createOperations: (scope: Scope) => PhotoJobOperations,
 ): Promise<void> {
+  const operations = createOperations(req.scope as Scope)
   const job = assertVisible(
-    await createOperations(req.scope as Scope).retrievePhotoJob(jobId(req)),
+    await operations.retrievePhotoJob(jobId(req)),
     req,
   )
-  res.json({ photo_job: outputPhotoJob(job) })
+  const assets = await operations.listPhotoAssets(job.id)
+  let activeVersion: Record<string, unknown> | undefined
+  if (typeof job.active_version_id === "string" && job.active_version_id) {
+    const version = await operations.retrievePhotoJobVersion(job.active_version_id)
+    if (version) {
+      const items = await operations.listPrintItems(job.active_version_id)
+      activeVersion = outputActiveVersion(version, items)
+    }
+  }
+  res.json({ photo_job: {
+    ...outputPhotoJob(job),
+    assets: assets.map(outputPhotoAsset),
+    ...(activeVersion ? { active_version: activeVersion } : {}),
+  } })
 }
 
 export async function handleStorePhotoJobDelete<Scope>(

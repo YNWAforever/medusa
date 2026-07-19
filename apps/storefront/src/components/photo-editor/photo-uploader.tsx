@@ -69,10 +69,12 @@ export function PhotoUploader({
   jobId,
   locale,
   assets = [],
+  onChanged,
 }: {
   jobId: string;
   locale: Locale;
   assets?: PhotoAssetView[];
+  onChanged?: () => void;
 }) {
   const copy = labels[locale];
   const storageKey = `fotomax:photo-queue:${jobId}`;
@@ -146,6 +148,7 @@ export function PhotoUploader({
           }),
       });
       update(row.id, { status: "uploaded", progress: 100 });
+      onChanged?.();
     } catch (error) {
       if (controller.signal.aborted) return;
       const code =
@@ -193,6 +196,7 @@ export function PhotoUploader({
       await uploader.abort(jobId, row.sessionId).catch(() => undefined);
     if (row.assetId) await createPhotoClient().deleteAsset(jobId, row.assetId);
     setRows((current) => current.filter((item) => item.id !== row.id));
+    onChanged?.();
   }
   function replaceFile(row: QueueRow, files: FileList | null) {
     const file = files?.[0];

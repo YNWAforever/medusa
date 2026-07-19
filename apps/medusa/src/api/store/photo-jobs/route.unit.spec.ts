@@ -30,6 +30,33 @@ function job(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function asset(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "phast_123",
+    job_id: "phjob_123",
+    display_name: "family.jpg",
+    object_key: "private/jobs/phjob_123/original.jpg",
+    preview_key: "private/jobs/phjob_123/preview.jpg",
+    crc32c: "private-checksum",
+    sha256: "private-hash",
+    expected_bytes: 2048,
+    stored_bytes: 2048,
+    detected_mime_type: "image/jpeg",
+    width: 1800,
+    height: 1200,
+    orientation: 1,
+    quality_band: "good",
+    estimated_ppi: 300,
+    warnings: [],
+    errors: [],
+    status: "ready",
+    failure_code: null,
+    deletion_requested_at: null,
+    provider_cleanup_completed_at: null,
+    ...overrides,
+  }
+}
+
 function operations(overrides: Partial<PhotoJobOperations> = {}): PhotoJobOperations {
   return {
     async createPhotoJob(input) {
@@ -40,6 +67,15 @@ function operations(overrides: Partial<PhotoJobOperations> = {}): PhotoJobOperat
     },
     async retrievePhotoJob() {
       return job()
+    },
+    async listPhotoAssets() {
+      return []
+    },
+    async retrievePhotoJobVersion() {
+      return null
+    },
+    async listPrintItems() {
+      return []
     },
     async updatePhotoJob(_selector, data) {
       return job(data)
@@ -135,6 +171,80 @@ describe("store photo-job ownership", () => {
       })),
       "photo_job_not_found",
     )
+  })
+
+  it("hydrates an owner-visible job with safe assets for refresh recovery", async () => {
+    const listPhotoAssets = vi.fn(async () => [asset()])
+    const res = response()
+
+    await handleStorePhotoJobGet(
+      guestRequest({ params: { id: "phjob_123" } }),
+      res,
+      () => operations({ listPhotoAssets }),
+    )
+
+    expect(listPhotoAssets).toHaveBeenCalledWith("phjob_123")
+    expect(res.json).toHaveBeenCalledWith({ photo_job: expect.objectContaining({
+      id: "phjob_123",
+      assets: [expect.objectContaining({
+        id: "phast_123",
+        display_name: "family.jpg",
+        status: "ready",
+        width: 1800,
+        height: 1200,
+        quality_band: "good",
+      })],
+    }) })
+    const serialized = JSON.stringify(res.json.mock.calls[0][0])
+    for (const privateField of [
+      "object_key",
+      "preview_key",
+      "crc32c",
+      "sha256",
+      "job_id",
+      "deletion_requested_at",
+      "provider_cleanup_completed_at",
+    ]) expect(serialized).not.toContain(privateField)
+  })
+
+  it("hydrates the active version with safe effective print settings", async () => {
+    const res = response()
+    await handleStorePhotoJobGet(
+      guestRequest({ params: { id: "phjob_123" } }),
+      res,
+      () => operations({
+        retrievePhotoJob: async () => job({ active_version_id: "phver_123" }),
+        retrievePhotoJobVersion: async () => ({ id: "phver_123", defaults: { finish: "matte", border: "white", cropMode: "fit", crop: { x: 0, y: 0, width: 1, height: 1 }, quantity: 2 }, idempotency_key: "private" }),
+        listPrintItems: async () => [{ id: "phitem_123", version_id: "phver_123", asset_id: "phast_123", finish: "glossy", border: "white", crop_mode: "fill", crop: { x: 0.1, y: 0, width: 0.8, height: 1 }, quantity: 4, warning_acknowledgements: ["quality_caution"], unit_price_snapshot: 99 }],
+      } as any),
+    )
+
+    const payload = res.json.mock.calls[0][0]
+    expect(payload.photo_job.active_version).toEqual({
+      id: "phver_123",
+      defaults: expect.objectContaining({ finish: "matte", quantity: 2 }),
+      items: [expect.objectContaining({ asset_id: "phast_123", finish: "glossy", quantity: 4 })],
+    })
+    expect(JSON.stringify(payload)).not.toContain("idempotency_key")
+    expect(JSON.stringify(payload)).not.toContain("unit_price_snapshot")
+  })
+
+  it("does not list assets until the job owner has been authorized", async () => {
+    const listPhotoAssets = vi.fn(async () => [asset()])
+
+    await expectCode(
+      () => handleStorePhotoJobGet(
+        guestRequest({ params: { id: "phjob_123" } }),
+        response(),
+        () => operations({
+          retrievePhotoJob: async () => job({ guest_owner_hash: null, customer_id: "cus_other" }),
+          listPhotoAssets,
+        }),
+      ),
+      "photo_job_not_found",
+    )
+
+    expect(listPhotoAssets).not.toHaveBeenCalled()
   })
 
   it("returns a conflict for a stale cancellation revision", async () => {
@@ -340,6 +450,19 @@ describe("store photo-job ownership", () => {
     await expect(operations.updatePhotoJob(selector, data)).resolves.toEqual(expect.objectContaining({ revision: 5 }))
     await expect(operations.updatePhotoJob(selector, data)).resolves.toBeNull()
     expect(updatePhotoJobs).toHaveBeenCalledWith({ selector, data })
+  })
+
+  it("adapts owner-scoped asset listing and drops deleted assets", async () => {
+    const listPhotoAssets = vi.fn(async () => [asset(), asset({ id: "phast_deleted", status: "deleted" })])
+    const scope = {
+      resolve: vi.fn((key: unknown) => key === "photoProduction" ? { listPhotoAssets } : {}),
+    }
+    const operations = createMedusaPhotoJobOperations(scope as never)
+
+    await expect(operations.listPhotoAssets("phjob_123")).resolves.toEqual([
+      expect.objectContaining({ id: "phast_123" }),
+    ])
+    expect(listPhotoAssets).toHaveBeenCalledWith({ job_id: "phjob_123" })
   })
 
   it("runs ownership mutations with a serializable shared transaction context", async () => {
