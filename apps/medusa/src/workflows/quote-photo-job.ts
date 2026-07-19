@@ -39,6 +39,7 @@ export async function quotePhotoJob(
   }
   const version = await store.retrieveVersion(input.versionId)
   if (!version || version.job_id !== input.jobId) throw new Error("photo_version_not_found")
+  if (version.order_id) throw new Error("photo_order_conflict")
   const items = await store.listItems({ version_id: version.id })
   if (!items.length) throw new Error("photo_version_empty")
   await store.assertCapability(items, input.fulfillment)

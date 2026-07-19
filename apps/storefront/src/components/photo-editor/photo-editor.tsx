@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
 import type { Locale } from "@fotomax/shared"
 import { AlertCircle } from "lucide-react"
+import { useOptionalCart } from "../cart-provider"
 import { createPhotoClient } from "../../lib/photo/client"
 import { PhotoClientError, type PhotoJobView } from "../../lib/photo/contracts"
 import { buildVersionPayload, createEditorState, editorReducer, photoWarningCode } from "./editor-state"
@@ -25,12 +26,14 @@ export function PhotoConflictNotice({ locale, onReload }: { locale: Locale; onRe
 
 export function PhotoEditor({ job, locale, onJobChange }: { job: PhotoJobView; locale: Locale; onJobChange?(job: PhotoJobView): void }) {
   const client = useMemo(() => createPhotoClient(), [])
+  const cart = useOptionalCart()
   const [state, dispatch] = useReducer(editorReducer, job, createEditorState)
   const [inspectedId, setInspectedId] = useState(() => job.assets?.find((asset) => asset.status === "ready")?.id ?? job.assets?.[0]?.id ?? null)
   const [filter, setFilter] = useState<QualityFilterValue>("all")
   const [versionId, setVersionId] = useState<string | null>(job.active_version_id ?? null)
   const [quote, setQuote] = useState<Quote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
+  const [attaching, setAttaching] = useState(false)
   const [message, setMessage] = useState("")
   const allAssetsReady = state.assetOrder.length > 0 && state.assetOrder.every((id) => state.assets[id].status === "ready")
 
@@ -89,6 +92,20 @@ export function PhotoEditor({ job, locale, onJobChange }: { job: PhotoJobView; l
     finally { setQuoteLoading(false) }
   }, [client, locale, saveVersion, state.dirty, state.jobId, versionId])
 
+  const attachQuote = useCallback(async () => {
+    if (!quote) return
+    setAttaching(true)
+    setMessage("")
+    try {
+      await client.attachToCart(state.jobId)
+      await cart?.refresh()
+      cart?.openCart()
+    } catch {
+      setMessage(copy[locale].quoteError)
+    } finally {
+      setAttaching(false)
+    }
+  }, [cart, client, locale, quote, state.jobId])
   const visibleAssetIds = state.assetOrder.filter((id) => {
     const asset = state.assets[id]
     if (filter === "all") return true
@@ -110,6 +127,6 @@ export function PhotoEditor({ job, locale, onJobChange }: { job: PhotoJobView; l
       <PhotoInspector locale={locale} state={state} assetId={inspected} onPatch={(assetId, patch) => dispatch({ type: "set-asset", assetId, patch })} onReset={(assetId) => dispatch({ type: "reset-asset", assetId })} onAcknowledge={(assetId, code, acknowledged) => dispatch({ type: "ack-warning", assetId, code, acknowledged })} />
     </div>
     {message ? <div className="photo-error" role="alert"><p>{message}</p>{state.autosaveStatus === "error" ? <button type="button" className="button secondary" onClick={() => { setMessage(""); dispatch({ type: "retry-save" }) }}>{copy[locale].retry}</button> : null}</div> : null}
-    <QuoteSummary locale={locale} quote={quote} loading={quoteLoading} disabled={state.readOnly || !allAssetsReady || ["conflict", "saving"].includes(state.autosaveStatus)} onReview={() => void reviewQuote()} />
+    <QuoteSummary locale={locale} quote={quote} loading={quoteLoading} attaching={attaching} disabled={state.readOnly || !allAssetsReady || ["conflict", "saving"].includes(state.autosaveStatus)} onReview={() => void reviewQuote()} onAttach={() => void attachQuote()} />
   </section>
 }

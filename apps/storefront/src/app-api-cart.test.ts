@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+
+vi.mock("server-only", () => ({}))
 import { CART_COOKIE } from "./lib/medusa/session"
 import { CartError } from "./lib/medusa/cart"
 

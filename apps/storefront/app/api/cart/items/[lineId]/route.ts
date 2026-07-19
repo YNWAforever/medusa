@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { proxyPhotoCartMutation } from "../../../../../src/lib/photo/cart-bff"
 import { createStoreSdk } from "../../../../../src/lib/medusa/client"
 import {
   CartError,
@@ -64,7 +65,11 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   if ("response" in confirmed) return confirmed.response
 
   const { lineId } = await params
-  if (!confirmed.cart.items.some((item) => item.id === lineId)) return lineNotFoundResponse()
+  const line = confirmed.cart.items.find((item) => item.id === lineId)
+  if (!line) return lineNotFoundResponse()
+  if (line.kind === "photo_print") {
+    return NextResponse.json({ error: { code: "photo_group_quantity_locked" } }, { status: 409 })
+  }
 
   try {
     return NextResponse.json({ cart: await confirmed.adapter.updateLine(cartId, lineId, quantity) })
@@ -85,9 +90,13 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
   if ("response" in confirmed) return confirmed.response
 
   const { lineId } = await params
-  if (!confirmed.cart.items.some((item) => item.id === lineId)) return lineNotFoundResponse()
+  const line = confirmed.cart.items.find((item) => item.id === lineId)
+  if (!line) return lineNotFoundResponse()
 
   try {
+    if (line.kind === "photo_print" && line.photoJobId) {
+      return proxyPhotoCartMutation(request, line.photoJobId, "DELETE", cartId)
+    }
     return NextResponse.json({ cart: await confirmed.adapter.removeLine(cartId, lineId) })
   } catch (error) {
     if (errorStatus(error) === 404) return lineNotFoundResponse()

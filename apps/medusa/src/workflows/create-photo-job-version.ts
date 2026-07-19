@@ -29,7 +29,7 @@ export async function createPhotoJobVersion(input: CreatePhotoVersionInput, stor
     const job = await tx.retrieveJob(input.jobId)
     if (!job) throw new Error("photo_job_not_found")
     if (job.revision !== input.expectedRevision) throw new Error("photo_job_conflict")
-    if (["cancelled", "expired"].includes(job.status)) throw new Error("photo_job_conflict")
+    if (["cart_attached", "ordered", "cancelled", "expired"].includes(job.status)) throw new Error("photo_job_conflict")
 
     const normalizedDefaults = resolvePrintSettings(input.defaults)
     const assets = (await tx.listAssets({ job_id: input.jobId })).filter((asset) => asset.status !== "deleted")

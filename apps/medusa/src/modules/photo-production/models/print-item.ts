@@ -8,7 +8,7 @@ const PrintItem = model.define("print_item", {
   asset: model.belongsTo(() => PhotoAsset),
   variant_id: model.text(),
   sku: model.text(),
-  size: model.enum(["4R"]).default("4R"),
+  size: model.text().default("4R"),
   finish: model.enum(["glossy", "matte"]),
   border: model.enum(["none", "white"]),
   crop_mode: model.enum(["fill", "fit"]),

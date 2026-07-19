@@ -1,6 +1,6 @@
 import type { PhotoSettings } from "./settings"
 
-export type PhotoJobStatus = "draft" | "uploading" | "ready" | "processing" | "failed" | "completed" | "cancelled" | "expired"
+export type PhotoJobStatus = "draft" | "uploading" | "ready" | "cart_attached" | "ordered" | "processing" | "failed" | "completed" | "cancelled" | "expired"
 export type PhotoAssetStatus = "pending" | "uploading" | "uploaded" | "processing" | "ready" | "blocked" | "failed" | "deleted"
 export type PhotoQualityBand = "good" | "caution" | "poor"
 export type PhotoWarningView = string | { code: string; acknowledged?: boolean }

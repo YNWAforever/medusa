@@ -53,7 +53,14 @@ export function createPhotoClient(fetcher: Fetcher = fetch) {
       )
       return body.quote
     },
-    async createUpload(
+    async attachToCart(jobId: string): Promise<unknown> {
+      const body = await json<{ cart: unknown }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/cart`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      )
+      return body.cart
+    },    async createUpload(
       jobId: string,
       input: {
         filename: string;

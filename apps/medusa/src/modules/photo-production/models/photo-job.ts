@@ -9,7 +9,7 @@ const PhotoJob = model.define("photo_job", {
   currency_code: model.text(),
   product_handle: model.text().index(),
   status: model
-    .enum(["draft", "uploading", "ready", "failed", "cancelled", "expired"])
+    .enum(["draft", "uploading", "ready", "cart_attached", "ordered", "failed", "cancelled", "expired"])
     .default("draft")
     .index(),
   revision: model.number().default(0),

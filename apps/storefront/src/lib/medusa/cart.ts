@@ -92,6 +92,9 @@ function projectLine(line: MedusaCartLine): CartLineView {
     quantity: line.quantity,
     unitPrice: projectMoney(line.unit_price),
     subtotal: projectMoney(line.subtotal),
+    photoJobId: typeof line.metadata?.photo_job_id === "string"
+      ? line.metadata.photo_job_id
+      : null,
     photoJobVersionId: typeof line.metadata?.photo_job_version_id === "string"
       ? line.metadata.photo_job_version_id
       : null,

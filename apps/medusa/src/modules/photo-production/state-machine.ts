@@ -1,9 +1,9 @@
-export type PhotoJobStatus = "draft" | "uploading" | "ready" | "failed" | "cancelled" | "expired"
+export type PhotoJobStatus = "draft" | "uploading" | "ready" | "cart_attached" | "ordered" | "failed" | "cancelled" | "expired"
 export type PhotoAssetStatus = "pending" | "uploading" | "uploaded" | "processing" | "ready" | "blocked" | "failed" | "deleted"
 export type PhotoUploadSessionStatus = "active" | "completed" | "aborted" | "expired"
 
 const photoJobTransitions: Record<PhotoJobStatus, readonly PhotoJobStatus[]> = {
-  draft: ["uploading", "cancelled", "expired"], uploading: ["ready", "failed", "cancelled", "expired"], ready: ["uploading", "cancelled", "expired"], failed: ["uploading", "cancelled", "expired"], cancelled: [], expired: [],
+  draft: ["uploading", "cancelled", "expired"], uploading: ["ready", "failed", "cancelled", "expired"], ready: ["uploading", "cart_attached", "cancelled", "expired"], cart_attached: ["ready", "ordered", "cancelled", "expired"], ordered: ["cancelled"], failed: ["uploading", "cancelled", "expired"], cancelled: [], expired: [],
 }
 const photoAssetTransitions: Record<PhotoAssetStatus, readonly PhotoAssetStatus[]> = {
   pending: ["uploading", "failed", "deleted"], uploading: ["uploaded", "failed", "deleted"], uploaded: ["processing", "deleted"], processing: ["ready", "blocked", "failed", "deleted"], ready: ["deleted"], blocked: ["deleted"], failed: ["uploading", "processing", "deleted"], deleted: [],

@@ -71,7 +71,7 @@ export function createEditorState(job: PhotoJobView): EditorState {
     changeSequence: 0,
     dirty: false,
     autosaveStatus: "idle",
-    readOnly: ["completed", "cancelled", "expired"].includes(job.status),
+    readOnly: ["ordered", "completed", "cancelled", "expired"].includes(job.status),
   }
 }
 
@@ -151,7 +151,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selectedAssetIds: state.selectedAssetIds.filter((id) => id in assets),
         selectionAnchor: state.selectionAnchor && state.selectionAnchor in assets ? state.selectionAnchor : null,
         acknowledgements,
-        readOnly: ["completed", "cancelled", "expired"].includes(action.job.status),
+        readOnly: ["ordered", "completed", "cancelled", "expired"].includes(action.job.status),
       }
     }
     case "save-start": return { ...state, autosaveStatus: "saving" }
