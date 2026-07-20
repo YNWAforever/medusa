@@ -208,7 +208,18 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
     if (!PREVIEW_KEY_PATTERN.test(key) || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_PREVIEW_SIGNATURE_SECONDS) throw new PhotoStorageError("photo_storage_invalid_expiry")
     try { const url = await this.presign(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { expiresIn }); return { url, expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() } } catch { throw providerError() }
   }
-  async deletePrivateObjects(keys: string[]): Promise<void> {
+  async signPrivateOriginalRead(key: string, expiresIn = MAX_PREVIEW_SIGNATURE_SECONDS): Promise<{ url: string; expiresAt: string }> {
+    validateKey(key)
+    if (!ORIGINAL_KEY_PATTERN.test(key) || !Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_PREVIEW_SIGNATURE_SECONDS) {
+      throw new PhotoStorageError("photo_storage_invalid_expiry")
+    }
+    try {
+      const url = await this.presign(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { expiresIn })
+      return { url, expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() }
+    } catch {
+      throw providerError()
+    }
+  }  async deletePrivateObjects(keys: string[]): Promise<void> {
     keys.forEach(validateKey)
     try {
       for (let index = 0; index < keys.length; index += 1000) {

@@ -1,9 +1,11 @@
-﻿import { defineConfig, loadEnv } from "@medusajs/framework/utils"
+import { defineConfig, loadEnv } from "@medusajs/framework/utils"
 import { buildInfrastructureModules } from "./src/infrastructure-modules"
 import { loadRuntimeEnv } from "./src/runtime-env"
+import { validateRetentionTestMode } from "./src/modules/photo-production/retention"
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd())
 const runtimeEnv = loadRuntimeEnv(process.env)
+validateRetentionTestMode(process.env)
 
 module.exports = defineConfig({
   projectConfig: {

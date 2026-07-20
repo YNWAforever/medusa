@@ -91,32 +91,7 @@ export async function runPhotoUploadCleanup({
     { status: "deleted", provider_cleanup_completed_at: null },
     { take: batchSize, order: { updated_at: "ASC" }, withDeleted: true },
   );
-  const terminalBatchSize = batchSize;
-  const jobs = await service.listPhotoJobs(
-    { status: ["cancelled", "expired"] },
-    { take: terminalBatchSize, order: { updated_at: "ASC" } },
-  );
-  const terminalAssets: any[] = [];
-  for (const job of jobs) {
-    const assets = await service.listPhotoAssets(
-      { job_id: job.id, provider_cleanup_completed_at: null },
-      {
-        take: terminalBatchSize - terminalAssets.length,
-        order: { updated_at: "ASC" },
-      },
-    );
-    terminalAssets.push(...assets);
-    await service.updatePhotoJobs({
-      selector: { id: job.id },
-      data: { last_activity_at: now },
-    });
-    if (terminalAssets.length >= terminalBatchSize) break;
-  }
-
-  const candidates = [
-    ...deletedAssets.slice(0, batchSize),
-    ...terminalAssets.slice(0, terminalBatchSize),
-  ];
+  const candidates = deletedAssets.slice(0, batchSize);
   for (const asset of candidates) {
     try {
       const assetSessions = await service.listPhotoUploadSessions({

@@ -71,30 +71,18 @@ describe("photo upload cleanup", () => {
     );
   });
 
-  it("deletes objects for cancelled jobs and records provider completion", async () => {
+  it("defers cancelled-job media to the retention job", async () => {
     const f = fixture();
     f.service.listPhotoUploadSessions.mockResolvedValue([]);
     f.service.listPhotoJobs.mockResolvedValue([
       { id: "job_1", status: "cancelled" },
     ]);
-    f.service.listPhotoAssets.mockImplementation(async (filters) =>
-      filters.job_id ? [f.asset] : [],
-    );
+    f.service.listPhotoAssets.mockResolvedValue([]);
     await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
-      deletedAssets: 1,
+      deletedAssets: 0,
     });
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledWith([
-      "private/random",
-    ]);
-    expect(f.service.updatePhotoAssets).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "deleted",
-          provider_cleanup_completed_at: expect.any(Date),
-        }),
-      }),
-    );
-    expect(f.service.updatePhotoJobs).toHaveBeenCalled();
+    expect(f.service.listPhotoJobs).not.toHaveBeenCalled();
+    expect(f.storage.deletePrivateObjects).not.toHaveBeenCalled();
   });
 
   it("removes completed cleanup from the retry query", async () => {
@@ -143,7 +131,7 @@ describe("photo upload cleanup", () => {
     expect(output).not.toContain("provider-secret");
     expect(output).not.toMatch(/https?:|credential|bytes=/i);
   });
-  it("reserves an independent batch for terminal-job assets", async () => {
+  it("does not add terminal-job assets to explicit cleanup candidates", async () => {
     const f = fixture();
     f.service.listPhotoUploadSessions.mockResolvedValue([]);
     f.service.listPhotoJobs.mockResolvedValue([
@@ -157,6 +145,7 @@ describe("photo upload cleanup", () => {
       ...f.asset,
       id: "terminal_asset",
       job_id: "terminal_job",
+      object_key: "private/terminal",
     };
     f.service.listPhotoAssets.mockImplementation(async (filters) =>
       filters.status === "deleted"
@@ -166,8 +155,8 @@ describe("photo upload cleanup", () => {
           : [],
     );
     await runPhotoUploadCleanup({ ...f, batchSize: 2 });
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledTimes(3);
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledWith([
+    expect(f.storage.deletePrivateObjects).toHaveBeenCalledTimes(2);
+    expect(f.storage.deletePrivateObjects).not.toHaveBeenCalledWith([
       terminal.object_key,
     ]);
   });

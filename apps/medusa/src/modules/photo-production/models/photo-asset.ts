@@ -5,7 +5,7 @@ const PhotoAsset = model.define("photo_asset", {
   id: model.id({ prefix: "phast" }).primaryKey(),
   job: model.belongsTo(() => PhotoJob),
   display_name: model.text(),
-  object_key: model.text().unique(),
+  object_key: model.text().unique().nullable(),
   reported_mime_type: model.text().nullable(),
   detected_mime_type: model.text().nullable(),
   expected_bytes: model.number(),
@@ -31,6 +31,7 @@ const PhotoAsset = model.define("photo_asset", {
   last_activity_at: model.dateTime().nullable(),
   deletion_requested_at: model.dateTime().nullable(),
   provider_cleanup_completed_at: model.dateTime().nullable(),
+  media_deleted_at: model.dateTime().nullable(),
 })
 
 export default PhotoAsset

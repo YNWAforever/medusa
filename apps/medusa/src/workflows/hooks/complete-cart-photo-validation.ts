@@ -88,6 +88,7 @@ export async function freezeOrderPhotoVersions(
       await dependencies.updateVersion(id, { order_id: input.order.id, order_frozen_at: now })
       await dependencies.updateJob(version.job_id, {
         status: "ordered",
+        production_status: "accepted",
         last_activity_at: now,
       })
     })

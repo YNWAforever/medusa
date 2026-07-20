@@ -10,6 +10,7 @@ export interface PhotoObjectStorage {
   readPrivateObject(key: string): Promise<Readable>
   writePrivatePreview(input: { key: string; bytes: Buffer; contentType: "image/jpeg" }): Promise<void>
   signPrivateRead(key: string, expiresIn?: number): Promise<{ url: string; expiresAt: string }>
+  signPrivateOriginalRead(key: string, expiresIn?: number): Promise<{ url: string; expiresAt: string }>
   deletePrivateObjects(keys: string[]): Promise<void>
 }
 

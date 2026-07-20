@@ -1,19 +1,21 @@
 import { PHOTO_PRODUCTION_MODULE } from "../../../../../../../modules/photo-production";
 import { retryDeadLetteredPhotoAsset } from "../../../../../../../workflows/retry-photo-asset";
+import { adminActor } from "../../../../admin-runtime";
 
 export async function POST(req: any, res: any): Promise<void> {
   const jobId = req.params?.id?.trim();
   const assetId = req.params?.assetId?.trim();
-  if (!jobId || !assetId || !req.auth_context?.actor_id) {
+  if (!jobId || !assetId) {
     res.status(404).send();
     return;
   }
   try {
+    const actorId = adminActor(req);
     const asset = await retryDeadLetteredPhotoAsset(
       {
         assetId,
         jobId,
-        actorId: req.auth_context.actor_id,
+        actorId,
         requestId: req.headers?.["x-request-id"],
       },
       {

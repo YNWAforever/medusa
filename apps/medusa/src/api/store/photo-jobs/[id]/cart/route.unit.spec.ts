@@ -210,7 +210,7 @@ describe("checkout validation and order freeze", () => {
       order_id: "order_1",
       order_frozen_at: now,
     }))
-    expect(dependencies.updateJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ status: "ordered" }))
+    expect(dependencies.updateJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ status: "ordered", production_status: "accepted" }))
   })
 })
 
@@ -224,6 +224,7 @@ describe("ordered photo cancellation", () => {
     await cancelOrderedPhotoJobs({ orderId: "order_1", cancelledAt: now }, dependencies as never)
     expect(dependencies.updateJob).toHaveBeenCalledWith("job_1", expect.objectContaining({
       status: "cancelled",
+      production_status: "cancelled",
       cancelled_at: now,
       retention_class: "cancelled_order_30d",
     }))

@@ -20,6 +20,7 @@ export async function cancelOrderedPhotoJobs(
     if (job.status !== "ordered") throw new Error("photo_state_transition_invalid")
     await dependencies.updateJob(job.id, {
       status: "cancelled",
+      production_status: "cancelled",
       revision: (job.revision ?? 0) + 1,
       cancelled_at: cancelledAt,
       last_activity_at: cancelledAt,

@@ -79,6 +79,7 @@ function ops(overrides: Partial<UploadOperations> = {}): UploadOperations {
       readPrivateObject: vi.fn(),
       writePrivatePreview: vi.fn(),
       signPrivateRead: vi.fn(),
+      signPrivateOriginalRead: vi.fn(),
       deletePrivateObjects: vi.fn(),
     },
     ...overrides,
