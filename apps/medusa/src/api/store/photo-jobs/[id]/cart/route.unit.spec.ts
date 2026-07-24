@@ -190,11 +190,13 @@ describe("checkout validation and order freeze", () => {
     }, dependencies as never)).rejects.toThrow(code)
   })
 
-  it("freezes order/version and order-line links once, then makes retry a no-op", async () => {
+  it("freezes order/version atomically and reconciles links on retry", async () => {
     let stored = version({ cart_id: "cart_1" })
-    const dependencies = {
+    const dependencies: any = {
       withLocks: vi.fn(async (_keys: string[], action: () => Promise<unknown>) => action()),
+      transaction: vi.fn(async (action: (tx: unknown) => Promise<unknown>) => action(dependencies)),
       retrieveVersion: vi.fn(async () => stored),
+      retrieveJob: vi.fn(async () => job({ status: stored.order_id ? "ordered" : "cart_attached" })),
       createOrderLink: vi.fn(async () => undefined),
       createOrderLineLinks: vi.fn(async () => undefined),
       updateVersion: vi.fn(async (_id: string, patch: Record<string, unknown>) => { stored = { ...stored, ...patch } }),
@@ -204,13 +206,69 @@ describe("checkout validation and order freeze", () => {
     await freezeOrderPhotoVersions({ order, now }, dependencies as never)
     await freezeOrderPhotoVersions({ order, now }, dependencies as never)
 
-    expect(dependencies.createOrderLink).toHaveBeenCalledOnce()
-    expect(dependencies.createOrderLineLinks).toHaveBeenCalledOnce()
+    expect(dependencies.transaction).toHaveBeenCalledOnce()
+    expect(dependencies.createOrderLink).toHaveBeenCalledTimes(2)
+    expect(dependencies.createOrderLineLinks).toHaveBeenCalledTimes(2)
     expect(dependencies.updateVersion).toHaveBeenCalledWith("version_1", expect.objectContaining({
       order_id: "order_1",
       order_frozen_at: now,
     }))
     expect(dependencies.updateJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ status: "ordered", production_status: "accepted" }))
+  })
+  it("repairs order links on replay under the shared job lock", async () => {
+    const stored = version({ cart_id: "cart_1", order_id: "order_1" })
+    const dependencies: any = {
+      withLocks: vi.fn(async (_keys: string[], action: () => Promise<unknown>) => action()),
+      transaction: vi.fn(async (action: (tx: unknown) => Promise<unknown>) => action(dependencies)),
+      retrieveVersion: vi.fn(async () => stored),
+      retrieveJob: vi.fn(async () => job({ status: "ordered" })),
+      createOrderLink: vi.fn(async () => undefined),
+      createOrderLineLinks: vi.fn(async () => undefined),
+      updateVersion: vi.fn(async () => undefined),
+      updateJob: vi.fn(async () => undefined),
+    }
+    const order = { id: "order_1", cart_id: "cart_1", items: [{ id: "order_line_1", metadata: photoLine.metadata }] }
+    await freezeOrderPhotoVersions({ order, now }, dependencies as never)
+
+    expect(dependencies.withLocks).toHaveBeenCalledWith(
+      ["photo-job:job_1", "photo-version:version_1"],
+      expect.any(Function),
+    )
+    expect(dependencies.transaction).not.toHaveBeenCalled()
+    expect(dependencies.createOrderLink).toHaveBeenCalledOnce()
+    expect(dependencies.createOrderLineLinks).toHaveBeenCalledOnce()
+    expect(dependencies.updateVersion).not.toHaveBeenCalled()
+  })
+  it("compensates a failed link write so checkout retry can freeze again", async () => {
+    let storedVersion = version({ cart_id: "cart_1" })
+    let storedJob = job({ status: "cart_attached", production_status: null })
+    const dependencies: any = {
+      withLocks: vi.fn(async (_keys: string[], action: () => Promise<unknown>) => action()),
+      transaction: vi.fn(async (action: (tx: unknown) => Promise<unknown>) => action(dependencies)),
+      retrieveVersion: vi.fn(async () => storedVersion),
+      retrieveJob: vi.fn(async () => storedJob),
+      createOrderLink: vi.fn(async () => undefined),
+      createOrderLineLinks: vi.fn()
+        .mockRejectedValueOnce(new Error("link_write_failed"))
+        .mockResolvedValue(undefined),
+      updateVersion: vi.fn(async (_id: string, patch: Record<string, unknown>) => {
+        storedVersion = { ...storedVersion, ...patch }
+      }),
+      updateJob: vi.fn(async (_id: string, patch: Record<string, unknown>) => {
+        storedJob = { ...storedJob, ...patch }
+      }),
+    }
+    const order = { id: "order_1", cart_id: "cart_1", items: [{ id: "order_line_1", metadata: photoLine.metadata }] }
+
+    await expect(freezeOrderPhotoVersions({ order, now }, dependencies as never))
+      .rejects.toThrow("link_write_failed")
+    expect(storedVersion.order_id).toBeNull()
+    expect(storedJob.status).toBe("cart_attached")
+
+    await expect(freezeOrderPhotoVersions({ order, now }, dependencies as never))
+      .resolves.toBeUndefined()
+    expect(storedVersion.order_id).toBe("order_1")
+    expect(storedJob.status).toBe("ordered")
   })
 })
 

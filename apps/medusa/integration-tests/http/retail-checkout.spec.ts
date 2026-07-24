@@ -31,6 +31,14 @@ const env = {
   AUTH_CORS: "http://localhost:9000,http://localhost:3000",
   JWT_SECRET: process.env.JWT_SECRET ?? "fotomax-local-jwt-secret",
   COOKIE_SECRET: process.env.COOKIE_SECRET ?? "fotomax-local-cookie-secret",
+  PHOTO_STORAGE_ENDPOINT:
+    process.env.PHOTO_STORAGE_ENDPOINT ?? "http://localhost:9002",
+  PHOTO_STORAGE_REGION: "us-east-1",
+  PHOTO_STORAGE_BUCKET: "fotomax-photo-private",
+  PHOTO_STORAGE_ACCESS_KEY: "fotomax_minio",
+  PHOTO_STORAGE_SECRET_KEY: "fotomax_minio_local_only",
+  PHOTO_STORAGE_FORCE_PATH_STYLE: "true",
+  PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false",
 }
 
 type QueryRecord = Record<string, unknown>

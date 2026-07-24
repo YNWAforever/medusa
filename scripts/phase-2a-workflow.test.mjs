@@ -57,3 +57,22 @@ test("builds the container offline before the Wrangler deployment dry-run", () =
     /^\s*- run: npm run cloudflare:container:build\r?$/m,
   )
 })
+test("runs Phase 2B photo verification against private S3-compatible storage", () => {
+  assert.match(workflow, /minio\/minio:/)
+  assert.match(workflow, /mc anonymous set none/)
+  assert.match(workflow, /PHOTO_STORAGE_ENDPOINT: http:\/\/localhost:9002/)
+  assert.match(workflow, /PHOTO_STORAGE_BUCKET: fotomax-photo-private/)
+  assert.match(workflow, /PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false"/)
+  assert.match(
+    workflow,
+    /MINIO_API_CORS_ALLOW_ORIGIN=http:\/\/127\.0\.0\.1:3100,http:\/\/localhost:3100/,
+  )
+  assert.match(
+    workflow,
+    /^\s*- run: npm run test:integration --workspace @fotomax\/medusa\s*$/m,
+  )
+  assert.doesNotMatch(
+    workflow,
+    /test:integration --workspace @fotomax\/medusa -- photo-production\.spec\.ts photo-security\.spec\.ts/,
+  )
+})

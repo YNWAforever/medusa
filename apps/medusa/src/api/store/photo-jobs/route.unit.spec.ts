@@ -485,7 +485,7 @@ describe("store photo-job ownership", () => {
 
     expect(withPhotoJobTransaction).toHaveBeenCalledWith(
       expect.any(Function),
-      { isolationLevel: "SERIALIZABLE" },
+      { isolationLevel: "serializable" },
     )
     expect(updatePhotoJobs).toHaveBeenCalledWith(
       { selector, data },

@@ -8,6 +8,7 @@ function fixture() {
   const asset = { id: "asset_1", job_id: job.id, status: "ready", object_key: "photo-jobs/00000000-0000-4000-8000-000000000001/originals/00000000-0000-4000-8000-000000000002", preview_key: "photo-jobs/00000000-0000-4000-8000-000000000001/previews/00000000-0000-4000-8000-000000000002.jpg", sha256: "sha", crc32c: "crc", width: 1200, height: 1800 }
   const service: any = {
     listPhotoJobs: vi.fn(async () => [job]),
+    retrievePhotoJob: vi.fn(async () => job),
     listPhotoAssets: vi.fn(async () => [asset]),
     updatePhotoAssets: vi.fn(async (input) => [{ ...asset, ...input.data }]),
     updatePhotoJobs: vi.fn(async (input) => [{ ...job, ...input.data }]),
@@ -26,7 +27,7 @@ describe("hourly photo retention cleanup", () => {
   it("locks, deletes and verifies both keys, then preserves evidence-only asset fields", async () => {
     const f = fixture()
     await expect(runPhotoRetention({ ...f, batchSize: 25 })).resolves.toEqual({ expiredJobs: 1, deletedAssets: 1, failures: 0 })
-    expect(f.locking.execute).toHaveBeenCalledWith(["photo-retention:job_1"], expect.any(Function))
+    expect(f.locking.execute).toHaveBeenCalledWith(["photo-job:job_1", "photo-retention:job_1"], expect.any(Function))
     expect(f.storage.deletePrivateObjects).toHaveBeenCalledWith([f.asset.object_key, f.asset.preview_key])
     expect(f.storage.headPrivateObject).toHaveBeenCalledTimes(2)
     expect(f.service.updatePhotoAssets).toHaveBeenCalledWith(expect.objectContaining({
@@ -46,6 +47,16 @@ describe("hourly photo retention cleanup", () => {
     expect(f.storage.deletePrivateObjects).not.toHaveBeenCalled()
   })
 
+  it("rechecks eligibility under the shared photo job lock", async () => {
+    const f = fixture()
+    f.service.retrievePhotoJob = vi.fn(async () => ({ ...f.job, status: "ordered" }))
+    await expect(runPhotoRetention(f)).resolves.toEqual({ expiredJobs: 0, deletedAssets: 0, failures: 0 })
+    expect(f.locking.execute).toHaveBeenCalledWith(
+      ["photo-job:job_1", "photo-retention:job_1"],
+      expect.any(Function),
+    )
+    expect(f.storage.deletePrivateObjects).not.toHaveBeenCalled()
+  })
   it("does not mark deletion complete until every object is verified absent", async () => {
     const f = fixture()
     f.storage.headPrivateObject.mockResolvedValue({ bytes: 1, contentType: "image/jpeg", checksumCRC32C: "crc" })

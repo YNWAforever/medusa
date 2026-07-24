@@ -8,8 +8,8 @@ vi.mock("../workflows/process-photo-asset", () => ({
 
 describe("photo_asset.uploaded subscriber", () => {
   it("resolves worker dependencies and forwards a 120-second lock adapter", async () => {
-    const release = vi.fn();
-    const locking = { acquire: vi.fn(async () => ({ release })) };
+
+    const locking = { acquire: vi.fn(async () => undefined), release: vi.fn(async () => true) };
     const values: Record<string, unknown> = {
       locking,
       photoProduction: {},
@@ -27,7 +27,7 @@ describe("photo_asset.uploaded subscriber", () => {
           ],
       ),
     };
-    await photoAssetUploaded({ data: { asset_id: "asset_1" }, container });
+    await photoAssetUploaded({ event: { name: "photo_asset.uploaded", data: { asset_id: "asset_1" } }, container } as never);
     expect(config).toEqual({ event: "photo_asset.uploaded" });
     expect(processPhotoAsset).toHaveBeenCalledWith(
       "asset_1",
@@ -40,9 +40,12 @@ describe("photo_asset.uploaded subscriber", () => {
     const adapter = vi.mocked(processPhotoAsset).mock.calls[0]?.[1].locking;
     const lock = await adapter!.acquire("photo-asset:asset_1", 120);
     expect(locking.acquire).toHaveBeenCalledWith("photo-asset:asset_1", {
-      ttl: 120,
+      ownerId: expect.any(String),
+      expire: 120,
     });
     await lock.release();
-    expect(release).toHaveBeenCalled();
+    expect(locking.release).toHaveBeenCalledWith("photo-asset:asset_1", {
+      ownerId: expect.any(String),
+    });
   });
 });

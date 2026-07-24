@@ -48,7 +48,9 @@ export async function runPhotoRetention({
   for (const job of jobs.slice(0, batchSize)) {
     if (!isRetentionEligible(job, now)) continue
     try {
-      await locking.execute([`photo-retention:${job.id}`], async () => {
+      await locking.execute([`photo-job:${job.id}`, `photo-retention:${job.id}`], async () => {
+        const currentJob = await service.retrievePhotoJob(job.id)
+        if (!isRetentionEligible(currentJob, now)) return
         const assets = await service.listPhotoAssets({ job_id: job.id })
         let objectCount = 0
         for (const asset of assets) {

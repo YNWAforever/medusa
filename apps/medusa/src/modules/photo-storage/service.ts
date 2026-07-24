@@ -33,6 +33,10 @@ type Dependencies = {
   presign?: Presign
 }
 
+function injected<K extends keyof Dependencies>(dependencies: Dependencies, key: K): Dependencies[K] | undefined {
+  return Object.prototype.hasOwnProperty.call(dependencies, key) ? dependencies[key] : undefined
+}
+
 function validateKey(key: string): void {
   if (!ORIGINAL_KEY_PATTERN.test(key) && !PREVIEW_KEY_PATTERN.test(key)) throw new PhotoStorageError("photo_storage_invalid_key")
 }
@@ -58,8 +62,8 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
   private readonly presign: Presign
 
   constructor(dependencies: Dependencies = {}) {
-    this.config = dependencies.config ?? loadPhotoStorageConfig(process.env)
-    this.client = dependencies.client ?? new S3Client({
+    this.config = injected(dependencies, "config") ?? loadPhotoStorageConfig(process.env)
+    this.client = injected(dependencies, "client") ?? new S3Client({
       endpoint: this.config.endpoint,
       region: this.config.region,
       forcePathStyle: this.config.forcePathStyle,
@@ -68,7 +72,7 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
         secretAccessKey: this.config.secretAccessKey,
       },
     } satisfies S3ClientConfig)
-    this.presign = dependencies.presign ?? getSignedUrl
+    this.presign = injected(dependencies, "presign") ?? getSignedUrl
   }
 
   async startMultipartUpload(input: { key: string; contentType: string }): Promise<{ uploadId: string }> {
@@ -79,7 +83,7 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
         Key: input.key,
         ContentType: input.contentType,
         ChecksumAlgorithm: "CRC32C",
-        ServerSideEncryption: "AES256",
+        ...(this.config.serverSideEncryption === false ? {} : { ServerSideEncryption: "AES256" as const }),
       }))
       if (!result.UploadId) throw providerError()
       return { uploadId: result.UploadId }
@@ -200,7 +204,7 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
   async writePrivatePreview(input: { key: string; bytes: Buffer; contentType: "image/jpeg" }): Promise<void> {
     validateKey(input.key)
     if (!PREVIEW_KEY_PATTERN.test(input.key) || input.contentType !== "image/jpeg") throw new PhotoStorageError("photo_storage_invalid_key")
-    try { await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: input.key, Body: input.bytes, ContentType: input.contentType, ServerSideEncryption: "AES256" })) } catch { throw providerError() }
+    try { await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: input.key, Body: input.bytes, ContentType: input.contentType, ...(this.config.serverSideEncryption === false ? {} : { ServerSideEncryption: "AES256" as const }) })) } catch { throw providerError() }
   }
 
   async signPrivateRead(key: string, expiresIn = MAX_PREVIEW_SIGNATURE_SECONDS): Promise<{ url: string; expiresAt: string }> {

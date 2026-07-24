@@ -52,9 +52,16 @@ export type UploadSession = {
   provider_upload_id?: string | null;
   part_size: number;
   expected_bytes: number;
+  completed_parts?: unknown;
   status: string;
   expires_at: Date | string;
   [key: string]: unknown;
+};
+
+type CompletedPart = {
+  partNumber: number;
+  etag: string;
+  checksumCRC32C: string;
 };
 
 type CreateInput = {
@@ -89,8 +96,13 @@ export interface UploadOperations {
   completeSession(
     asset: UploadAsset,
     session: UploadSession,
-    result: { bytes: number; checksumCRC32C: string },
+    result: {
+      bytes: number;
+      checksumCRC32C: string;
+      parts: CompletedPart[];
+    },
   ): Promise<UploadAsset>;
+  publishUploaded(asset: UploadAsset): Promise<void>;
   abortSession(
     asset: UploadAsset,
     session: UploadSession,
@@ -185,6 +197,23 @@ function parseParts(value: unknown) {
     };
   });
 }
+function sameParts(value: unknown, parts: CompletedPart[]): boolean {
+  if (!Array.isArray(value) || value.length !== parts.length) return false;
+  return value.every((item, index) => {
+    if (!item || typeof item !== "object") return false;
+    const part = item as Record<string, unknown>;
+    return (
+      part.partNumber === parts[index].partNumber &&
+      part.etag === parts[index].etag &&
+      part.checksumCRC32C === parts[index].checksumCRC32C
+    );
+  });
+}
+function isCompletedAsset(asset: UploadAsset): boolean {
+  return ["uploaded", "processing", "ready", "blocked", "failed"].includes(
+    asset.status,
+  );
+}
 function assertTransition(run: () => void): void {
   try {
     run();
@@ -220,12 +249,19 @@ export async function handleCreateUpload(
     !input.sourceIdempotencyKey.trim()
   )
     invalid("photo_upload_invalid_input");
-  const valid = validatePhotoFile({
-    filename: input.filename,
-    reportedMime: input.reportedMime,
-    bytes: input.bytes,
-    signature: parseSignature(input.signatureBase64),
-  });
+  let valid
+  try {
+    valid = validatePhotoFile({
+      filename: input.filename,
+      reportedMime: input.reportedMime,
+      bytes: input.bytes,
+      signature: parseSignature(input.signatureBase64),
+    })
+  } catch (caught) {
+    invalid(caught instanceof Error && caught.message.startsWith("photo_")
+      ? caught.message
+      : "photo_file_unsupported")
+  }
   const key = input.sourceIdempotencyKey.trim();
   const existing = await operations.findSessionByIdempotencyKey(jobId, key);
   if (existing) {
@@ -339,15 +375,16 @@ export async function handleComplete(
     param(req, "id"),
     param(req, "sessionId"),
   );
-  if (
-    found.session.status === "completed" &&
-    found.asset.status === "uploaded"
-  ) {
+  const parts = parseParts(body(req.body).parts);
+  if (found.session.status === "completed") {
+    if (!sameParts(found.session.completed_parts, parts))
+      conflict("photo_upload_completion_mismatch");
+    if (!isCompletedAsset(found.asset)) conflict("photo_upload_not_active");
+    await operations.publishUploaded(found.asset);
     res.json({ asset: safeAsset(found.asset) });
     return;
   }
   if (found.session.status !== "active") conflict("photo_upload_not_active");
-  const parts = parseParts(body(req.body).parts);
 
   let objectExists = true;
   try {
@@ -386,7 +423,9 @@ export async function handleComplete(
     const asset = await operations.completeSession(found.asset, found.session, {
       bytes: head.bytes,
       checksumCRC32C: head.checksumCRC32C,
+      parts,
     });
+    await operations.publishUploaded(asset);
     res.json({ asset: safeAsset(asset) });
   } catch (caught) {
     found = await operations.findOwnedSession(
@@ -394,10 +433,11 @@ export async function handleComplete(
       param(req, "id"),
       param(req, "sessionId"),
     );
-    if (
-      found.session.status === "completed" &&
-      found.asset.status === "uploaded"
-    ) {
+    if (found.session.status === "completed") {
+      if (!sameParts(found.session.completed_parts, parts))
+        conflict("photo_upload_completion_mismatch");
+      if (!isCompletedAsset(found.asset)) throw caught;
+      await operations.publishUploaded(found.asset);
       res.json({ asset: safeAsset(found.asset) });
       return;
     }
@@ -437,10 +477,9 @@ function generatedNotFound(e: unknown) {
   return e instanceof Error && /not found|no .*found/i.test(e.message);
 }
 function isSerializationFailure(e: unknown) {
-  return (
-    e instanceof Error &&
-    /serializ|could not serialize|deadlock/i.test(e.message)
-  );
+  const error = e as { code?: string; message?: string }
+  return error?.code === "40001" || error?.code === "40P01"
+    || /could not serialize access|deadlock detected/i.test(error?.message ?? "")
 }
 export function createMedusaUploadOperations(req: Request): UploadOperations {
   const service: any = req.scope.resolve(PHOTO_PRODUCTION_MODULE);
@@ -497,6 +536,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
     session: UploadSession,
     target: "completed" | "aborted",
     code?: string,
+    completedParts?: CompletedPart[],
   ) {
     try {
       return await service.withPhotoJobTransaction(
@@ -504,12 +544,12 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
           const latestSession = await listSession(session.id, context);
           const latestAsset = await retrieveAsset(asset.id, context);
           if (!latestSession || !latestAsset) notFound();
-          if (
-            target === "completed" &&
-            latestSession.status === "completed" &&
-            latestAsset.status === "uploaded"
-          )
+          if (target === "completed" && latestSession.status === "completed") {
+            if (!sameParts(latestSession.completed_parts, completedParts ?? []))
+              conflict("photo_upload_completion_mismatch");
+            if (!isCompletedAsset(latestAsset)) transitionConflict();
             return latestAsset;
+          }
           if (target === "aborted" && latestSession.status === "aborted")
             return latestAsset;
           assertTransition(() =>
@@ -531,7 +571,11 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
                 selector: { id: session.id, status: "active" },
                 data:
                   target === "completed"
-                    ? { status: target, completed_at: new Date() }
+                    ? {
+                        status: target,
+                        completed_at: new Date(),
+                        completed_parts: completedParts,
+                      }
                     : { status: target, aborted_at: new Date() },
               },
               context,
@@ -563,7 +607,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
           if (!updatedAsset) transitionConflict();
           return updatedAsset;
         },
-        { isolationLevel: "SERIALIZABLE" },
+        { isolationLevel: "serializable" },
       );
     } catch (caught) {
       if (isSerializationFailure(caught)) transitionConflict();
@@ -655,7 +699,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
             }
             return { asset, session, created: true };
           },
-          { isolationLevel: "SERIALIZABLE" },
+          { isolationLevel: "serializable" },
         );
       } catch (caught) {
         const winner = await findByKey(input.jobId, input.idempotencyKey);
@@ -673,17 +717,19 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
       return { asset, session };
     },
     async completeSession(asset, session, result) {
-      const completed = await mutateTerminal(
+      return mutateTerminal(
         { ...asset, expected_bytes: result.bytes },
         session,
         "completed",
         result.checksumCRC32C,
+        result.parts,
       );
+    },
+    async publishUploaded(asset) {
       await req.scope.resolve("event_bus").emit({
         name: "photo_asset.uploaded",
-        data: { asset_id: completed.id },
+        data: { asset_id: asset.id },
       });
-      return completed;
     },
     async abortSession(asset, session) {
       return mutateTerminal(asset, session, "aborted", "retry");

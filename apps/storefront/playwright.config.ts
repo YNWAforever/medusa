@@ -1,10 +1,12 @@
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 const host = "127.0.0.1";
 const port = process.env.FOTOMAX_E2E_PORT ?? "3100";
 const baseURL = `http://${host}:${port}`;
+const webServerTimeout = 240_000;
 
 const mockedPhotoUpload = process.env.FOTOMAX_E2E_MOCKED === "1";
 const configDir = path.dirname(fileURLToPath(import.meta.url));
@@ -27,14 +29,56 @@ const medusaEnv = {
   AUTH_CORS: process.env.AUTH_CORS ?? `${baseURL},http://localhost:9000`,
   JWT_SECRET: process.env.JWT_SECRET ?? "fotomax-local-jwt-secret",
   COOKIE_SECRET: process.env.COOKIE_SECRET ?? "fotomax-local-cookie-secret",
+  PHOTO_STORAGE_ENDPOINT: process.env.PHOTO_STORAGE_ENDPOINT ?? "http://localhost:9002",
+  PHOTO_STORAGE_REGION: process.env.PHOTO_STORAGE_REGION ?? "us-east-1",
+  PHOTO_STORAGE_BUCKET: process.env.PHOTO_STORAGE_BUCKET ?? "fotomax-photo-private",
+  PHOTO_STORAGE_ACCESS_KEY: process.env.PHOTO_STORAGE_ACCESS_KEY ?? "fotomax_minio",
+  PHOTO_STORAGE_SECRET_KEY: process.env.PHOTO_STORAGE_SECRET_KEY ?? "fotomax_minio_local_only",
+  PHOTO_STORAGE_FORCE_PATH_STYLE: process.env.PHOTO_STORAGE_FORCE_PATH_STYLE ?? "true",
+  PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: process.env.PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION ?? "false",
 };
+async function resolvePublishableKey(): Promise<string> {
+  const configured = process.env.MEDUSA_PUBLISHABLE_KEY;
+  if (configured) return configured;
+  if (mockedPhotoUpload) return "pk_e2e_mocked";
+
+  type Client = {
+    connect(): Promise<void>;
+    query(
+      sql: string,
+      values: unknown[],
+    ): Promise<{ rows: Array<{ token: string }> }>;
+    end(): Promise<void>;
+  };
+  const require = createRequire(import.meta.url);
+  const pg = require(path.join(repoRoot, "node_modules/pg")) as {
+    Client: new (config: { connectionString: string }) => Client;
+  };
+  const client = new pg.Client({ connectionString: medusaEnv.DATABASE_URL });
+  await client.connect();
+  try {
+    const result = await client.query(
+      "SELECT token FROM api_key WHERE title = $1 AND type = 'publishable' AND revoked_at IS NULL",
+      ["Fotomax Storefront Staging"],
+    );
+    if (result.rows.length !== 1) {
+      throw new Error(
+        `Expected one seeded Fotomax publishable key, found ${result.rows.length}`,
+      );
+    }
+    return result.rows[0].token;
+  } finally {
+    await client.end();
+  }
+}
+const publishableKey = await resolvePublishableKey();
 const storefrontEnv = {
   ...inheritedEnv,
   NODE_ENV: "development",
+  FOTOMAX_E2E: "1",
+  STOREFRONT_ORIGIN: baseURL,
   MEDUSA_BACKEND_URL: process.env.MEDUSA_BACKEND_URL ?? "http://localhost:9000",
-  MEDUSA_PUBLISHABLE_KEY:
-    process.env.MEDUSA_PUBLISHABLE_KEY ??
-    "pk_ceb30b0af83b88e98f7d65d0411e0340e0018954513b5dfff37420de68d96fc2",
+  MEDUSA_PUBLISHABLE_KEY: publishableKey,
   STOREFRONT_SESSION_SECRET:
     process.env.STOREFRONT_SESSION_SECRET ?? "fotomax-local-session-secret",
 };
@@ -61,7 +105,7 @@ export default defineConfig({
             env: medusaEnv,
             url: "http://127.0.0.1:9000/health",
             reuseExistingServer: false,
-            timeout: 120000,
+            timeout: webServerTimeout,
           },
         ]),
     {
@@ -73,7 +117,7 @@ export default defineConfig({
         ? `${baseURL}/photo-upload-e2e`
         : `${baseURL}/zh-HK`,
       reuseExistingServer: false,
-      timeout: 120000,
+      timeout: webServerTimeout,
     },
   ],
   projects: [

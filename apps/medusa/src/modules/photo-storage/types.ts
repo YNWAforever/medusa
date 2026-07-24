@@ -14,5 +14,5 @@ export interface PhotoObjectStorage {
   deletePrivateObjects(keys: string[]): Promise<void>
 }
 
-export interface PhotoStorageConfig { endpoint: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean }
+export interface PhotoStorageConfig { endpoint: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; serverSideEncryption?: boolean }
 export class PhotoStorageError extends Error { readonly code: string; constructor(code: string) { super(code); this.name = "PhotoStorageError"; this.code = code } }

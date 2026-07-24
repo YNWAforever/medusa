@@ -7,9 +7,12 @@ import type { LinkDefinition } from "@medusajs/framework/types"
 import {
   ContainerRegistrationKeys,
   Modules,
+  QueryContext,
 } from "@medusajs/framework/utils"
 
+import { BRANCH_CAPABILITY_MODULE } from "../modules/branch-capability"
 import { PHOTO_PRODUCTION_MODULE } from "../modules/photo-production"
+import { toMinorUnits } from "../utils/money"
 import type {
   AttachPhotoJobDependencies,
   PhotoCart,
@@ -24,6 +27,35 @@ import type {
 } from "./hooks/complete-cart-photo-validation"
 
 type Scope = { resolve<T = unknown>(name: string): T }
+
+type CapabilityDependencies = {
+  resolveShippingOption(id: string): Promise<any>
+  resolveBranch(handle: string): Promise<any>
+}
+
+export async function assertSelectedPhotoCapability(
+  cart: PhotoCart,
+  items: PhotoCartItem[],
+  dependencies: CapabilityDependencies,
+) {
+  const optionId = cart.shipping_methods?.[0]?.shipping_option_id
+  if (!optionId) return
+  const option = await dependencies.resolveShippingOption(optionId)
+  const kind = option?.data?.fulfillment_kind ?? option?.metadata?.fulfillment_kind
+  if (kind !== "pickup") return
+  const handle = option?.data?.branch_handle ?? option?.metadata?.branch_handle
+  if (typeof handle !== "string" || !handle) throw new Error("photo_capability_unavailable")
+  let branch: any
+  try {
+    branch = await dependencies.resolveBranch(handle)
+  } catch {
+    throw new Error("photo_capability_unavailable")
+  }
+  const supported = new Set(Array.isArray(branch?.supported_print_skus) ? branch.supported_print_skus : [])
+  if (!branch?.pickup_enabled || !branch?.test_only || items.some((item) => !item.sku || !supported.has(item.sku))) {
+    throw new Error("photo_capability_unavailable")
+  }
+}
 
 const first = <T>(value: T | T[]): T => Array.isArray(value) ? value[0] : value
 
@@ -50,6 +82,7 @@ function orderLineLink(versionId: string, lineId: string): LinkDefinition {
 
 export function createPhotoCartRuntime(scope: Scope) {
   const service: any = scope.resolve(PHOTO_PRODUCTION_MODULE)
+  const branchService: any = scope.resolve(BRANCH_CAPABILITY_MODULE)
   const query: any = scope.resolve(ContainerRegistrationKeys.QUERY)
   const locking: any = scope.resolve(Modules.LOCKING)
   const cartService: any = scope.resolve(Modules.CART)
@@ -60,6 +93,7 @@ export function createPhotoCartRuntime(scope: Scope) {
       fields: [
         "id", "customer_id", "currency_code", "metadata", "items.id",
         "items.variant_id", "items.quantity", "items.metadata",
+        "shipping_methods.shipping_option_id",
       ],
       filters: { id },
     })
@@ -98,7 +132,9 @@ export function createPhotoCartRuntime(scope: Scope) {
       entity: "product_variant",
       fields: ["id", "calculated_price.*", "product.status", "product.metadata"],
       filters: { id },
-      context: { currency_code: "hkd" },
+      context: {
+        calculated_price: QueryContext({ currency_code: "hkd" }),
+      },
     })
     const variant = result.data?.[0]
     if (!variant) return null
@@ -107,14 +143,27 @@ export function createPhotoCartRuntime(scope: Scope) {
       published: variant.product?.status === "published",
       commerceMode: variant.product?.metadata?.commerce_mode ?? "",
       currencyCode: variant.calculated_price?.currency_code ?? "hkd",
-      amount: variant.calculated_price?.calculated_amount,
+      amount: toMinorUnits(variant.calculated_price?.calculated_amount),
     }
   }
 
-  const assertCapability = async (cart: PhotoCart) => {
-    if ((cart as any).metadata?.fulfillment_type === "pickup") {
-      throw new Error("photo_capability_unavailable")
-    }
+  const assertCapability = async (cart: PhotoCart, candidate: PhotoCartItem[] | PhotoCartVersion) => {
+    const items = Array.isArray(candidate) ? candidate : await listItems(candidate.id)
+    await assertSelectedPhotoCapability(cart, items, {
+      resolveShippingOption: async (id) => {
+        const result = await query.graph({
+          entity: "shipping_option",
+          fields: ["id", "data", "metadata"],
+          filters: { id },
+        })
+        return result.data?.[0] ?? null
+      },
+      resolveBranch: async (handle) => {
+        const branches = await branchService.listBranchCapabilities({ handle })
+        if (!branches[0]) throw new Error("photo_capability_unavailable")
+        return branches[0]
+      },
+    })
   }
 
   const attach: AttachPhotoJobDependencies = {
@@ -185,7 +234,19 @@ export function createPhotoCartRuntime(scope: Scope) {
 
   const freeze: FreezeOrderPhotoDependencies = {
     withLocks,
+    transaction: (action) => service.withPhotoJobTransaction(
+      async (shared: Record<string, unknown>) => action({
+        updateVersion: async (id, patch) => {
+          await service.updatePhotoJobVersions({ selector: { id }, data: patch }, shared)
+        },
+        updateJob: async (id, patch) => {
+          await service.updatePhotoJobs({ selector: { id }, data: patch }, shared)
+        },
+      }),
+      { isolationLevel: "serializable" },
+    ),
     retrieveVersion,
+    retrieveJob: (id) => service.retrievePhotoJob(id),
     createOrderLink: async (versionId, orderId) => {
       const result = await query.graph({ entity: "photo_job_version", fields: ["order.id"], filters: { id: versionId } })
       if (result.data?.[0]?.order?.id !== orderId) {

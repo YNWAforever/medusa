@@ -22,6 +22,11 @@ export function loadPhotoStorageConfig(env: Environment): PhotoStorageConfig {
     throw new Error("photo_storage_config_invalid:PHOTO_STORAGE_FORCE_PATH_STYLE")
   }
 
+  const encryption = env.PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION?.trim() ?? "true"
+  if (!['true', 'false'].includes(encryption) || (encryption === 'false' && env.NODE_ENV === 'production')) {
+    throw new Error("photo_storage_config_invalid:PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION")
+  }
+
   return {
     endpoint,
     region: required(env, "PHOTO_STORAGE_REGION"),
@@ -29,5 +34,6 @@ export function loadPhotoStorageConfig(env: Environment): PhotoStorageConfig {
     accessKeyId: required(env, "PHOTO_STORAGE_ACCESS_KEY"),
     secretAccessKey: required(env, "PHOTO_STORAGE_SECRET_KEY"),
     forcePathStyle: pathStyle === "true",
+    serverSideEncryption: encryption === "true",
   }
 }

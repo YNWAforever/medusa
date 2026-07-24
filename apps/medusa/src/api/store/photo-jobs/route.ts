@@ -343,7 +343,7 @@ export function createMedusaPhotoJobOperations(
       try {
         return await photoProductionService.withPhotoJobTransaction(
           (transactionContext) => callback(createMedusaPhotoJobOperations(scope, transactionContext)),
-          { isolationLevel: "SERIALIZABLE" },
+          { isolationLevel: "serializable" },
         )
       } catch (error) {
         if (isSerializationFailure(error)) {

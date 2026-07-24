@@ -12,12 +12,26 @@ const config = {
   accessKeyId: process.env.PHOTO_STORAGE_ACCESS_KEY ?? "fotomax_minio",
   secretAccessKey: process.env.PHOTO_STORAGE_SECRET_KEY ?? "fotomax_minio_local_only",
   forcePathStyle: true,
+  serverSideEncryption: false,
 }
 const storage = new PhotoStorageModuleService({ config })
 const createdKeys: string[] = []
 
 function objectKey(): string {
   return `photo-jobs/${randomUUID()}/originals/${randomUUID()}`
+}
+
+function crc32c(bytes: Uint8Array): string {
+  let crc = 0xffffffff
+  for (const byte of bytes) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0x82f63b78 : 0)
+    }
+  }
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
+  return checksum.toString("base64")
 }
 
 describe("private photo storage", () => {
@@ -28,7 +42,7 @@ describe("private photo storage", () => {
   it("creates, uploads, completes, heads, and deletes a private multipart object", async () => {
     const key = objectKey()
     const body = Buffer.from("fotomax-private-photo")
-    const checksumCRC32C = "hRHAOg=="
+    const checksumCRC32C = crc32c(body)
     const { uploadId } = await storage.startMultipartUpload({
       key,
       contentType: "image/jpeg",
@@ -65,10 +79,10 @@ describe("private photo storage", () => {
     await expect(storage.headPrivateObject(key)).resolves.toEqual({
       bytes: body.length,
       contentType: "image/jpeg",
-      checksumCRC32C,
+      checksumCRC32C: `${crc32c(Buffer.from(checksumCRC32C, "base64"))}-1`,
     })
 
-    await expect(storage.readPrivateObjectPrefix(key, 12)).resolves.toEqual(body.subarray(0, 12))
+    await expect(storage.readPrivateObjectPrefix(key, 12)).resolves.toEqual(Uint8Array.from(body.subarray(0, 12)))
 
     const unsigned = await fetch(`${endpoint}/${config.bucket}/${key}`)
     expect(unsigned.status).toBe(403)

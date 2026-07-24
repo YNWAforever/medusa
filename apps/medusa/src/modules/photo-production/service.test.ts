@@ -103,12 +103,12 @@ describe("PhotoProductionModuleService transactions", () => {
     const callback = vi.fn(async (context: Record<string, unknown>) => context)
 
     await service.withPhotoJobTransaction(callback, {
-      isolationLevel: "SERIALIZABLE",
+      isolationLevel: "serializable",
     })
 
     expect(transaction).toHaveBeenCalledWith(
       expect.any(Function),
-      expect.objectContaining({ isolationLevel: "SERIALIZABLE" }),
+      expect.objectContaining({ isolationLevel: "serializable" }),
     )
     expect(callback).toHaveBeenCalledWith(expect.objectContaining({
       transactionManager,

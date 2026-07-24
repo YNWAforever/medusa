@@ -82,7 +82,7 @@ export async function DELETE(req: any, res: any): Promise<void> {
           ) ?? conflict()
         );
       },
-      { isolationLevel: "SERIALIZABLE" },
+      { isolationLevel: "serializable" },
     );
   }
   const sessions = await service.listPhotoUploadSessions({

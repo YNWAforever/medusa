@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, QueryContext } from "@medusajs/framework/utils"
+import { BRANCH_CAPABILITY_MODULE } from "../../../modules/branch-capability"
 import { PHOTO_PRODUCTION_MODULE } from "../../../modules/photo-production"
 import { verifyGuestSecret } from "../../../modules/photo-production/ownership"
+import { toMinorUnits } from "../../../utils/money"
 import { createPhotoJobVersion, type PhotoVersionStore } from "../../../workflows/create-photo-job-version"
 import { quotePhotoJob, type QuoteStore } from "../../../workflows/quote-photo-job"
 import type { VersionRouteDependencies } from "./version-handlers"
@@ -33,7 +35,7 @@ function versionStore(scope: any, context?: Record<string, unknown>): PhotoVersi
       if (context?.transactionManager) return callback(versionStore(scope, context))
       return service.withPhotoJobTransaction(
         (shared: Record<string, unknown>) => callback(versionStore(scope, shared)),
-        { isolationLevel: "SERIALIZABLE" },
+        { isolationLevel: "serializable" },
       )
     },
     findVersionByIdempotency: async (jobId, key) => {
@@ -74,6 +76,7 @@ function versionStore(scope: any, context?: Record<string, unknown>): PhotoVersi
 }
 
 function quoteStore(scope: any, job: any): QuoteStore {
+  const branchService: any = scope.resolve(BRANCH_CAPABILITY_MODULE)
   const service: any = scope.resolve(PHOTO_PRODUCTION_MODULE)
   const query: any = scope.resolve(ContainerRegistrationKeys.QUERY)
   return {
@@ -89,7 +92,9 @@ function quoteStore(scope: any, job: any): QuoteStore {
         entity: "product_variant",
         fields: ["id", "calculated_price.*", "product.status", "product.metadata"],
         filters: { id },
-        context: { region_id: job.region_id, currency_code: "hkd" },
+        context: {
+          calculated_price: QueryContext({ region_id: job.region_id, currency_code: "hkd" }),
+        },
       })
       const variant = result.data?.[0]
       if (!variant) return null
@@ -98,11 +103,27 @@ function quoteStore(scope: any, job: any): QuoteStore {
         published: variant.product?.status === "published",
         commerceMode: variant.product?.metadata?.commerce_mode ?? "",
         currencyCode: variant.calculated_price?.currency_code ?? "hkd",
-        amount: variant.calculated_price?.calculated_amount,
+        amount: toMinorUnits(variant.calculated_price?.calculated_amount),
       }
     },
-    assertCapability: async (_items, fulfillment) => {
-      if (fulfillment?.type === "pickup") {
+    assertCapability: async (items, fulfillment) => {
+      if (fulfillment?.type !== "pickup") return
+      let branch: any
+      try {
+        branch = await branchService.retrieveBranchCapability(fulfillment.branchId)
+      } catch {
+        throw new Error("photo_capability_unavailable")
+      }
+      const supported = new Set(
+        Array.isArray(branch.supported_print_skus)
+          ? branch.supported_print_skus.filter((sku: unknown): sku is string => typeof sku === "string")
+          : [],
+      )
+      if (
+        !branch.pickup_enabled
+        || !branch.test_only
+        || items.some((item) => !supported.has(item.sku))
+      ) {
         throw new Error("photo_capability_unavailable")
       }
     },
@@ -120,7 +141,7 @@ function quoteStore(scope: any, job: any): QuoteStore {
         }, shared))
         if (!updated) throw new Error("photo_job_conflict")
       },
-      { isolationLevel: "SERIALIZABLE" },
+      { isolationLevel: "serializable" },
     ),
     createPriceChangedQuote: async (input) => service.withPhotoJobTransaction(
       async (shared: Record<string, unknown>) => {
@@ -191,7 +212,7 @@ function quoteStore(scope: any, job: any): QuoteStore {
           requiresReview: true,
         }
       },
-      { isolationLevel: "SERIALIZABLE" },
+      { isolationLevel: "serializable" },
     ),
   }
 }

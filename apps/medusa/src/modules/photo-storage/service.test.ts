@@ -20,6 +20,22 @@ function setup(responses: unknown[] = []) {
 }
 
 describe("PhotoStorageModuleService guards", () => {
+  it("does not resolve optional test dependencies from an Awilix proxy", () => {
+    const dependencies = new Proxy({}, {
+      get: (_target, property) => { throw new Error(`unexpected_resolution:${String(property)}`) },
+    })
+    vi.stubEnv("PHOTO_STORAGE_ENDPOINT", config.endpoint)
+    vi.stubEnv("PHOTO_STORAGE_REGION", config.region)
+    vi.stubEnv("PHOTO_STORAGE_BUCKET", config.bucket)
+    vi.stubEnv("PHOTO_STORAGE_ACCESS_KEY", config.accessKeyId)
+    vi.stubEnv("PHOTO_STORAGE_SECRET_KEY", config.secretAccessKey)
+    vi.stubEnv("PHOTO_STORAGE_FORCE_PATH_STYLE", "true")
+    try {
+      expect(() => new PhotoStorageModuleService(dependencies)).not.toThrow()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
   it.each(["bad", "photo-jobs/not-a-uuid/originals/123e4567-e89b-42d3-a456-426614174001", `${key}/file.jpg`])("rejects malformed object key %s", async (badKey) => {
     const { service, send } = setup()
     await expect(service.startMultipartUpload({ key: badKey, contentType: "image/jpeg" })).rejects.toThrow("photo_storage_invalid_key")

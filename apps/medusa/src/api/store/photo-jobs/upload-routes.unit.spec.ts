@@ -54,6 +54,7 @@ function ops(overrides: Partial<UploadOperations> = {}): UploadOperations {
     })),
     findOwnedSession: vi.fn(async () => ({ asset, session })),
     completeSession: vi.fn(async () => ({ ...asset, status: "uploaded" })),
+    publishUploaded: vi.fn(async () => undefined),
     abortSession: vi.fn(async () => ({ ...asset, status: "failed" })),
     failSession: vi.fn(async () => ({ ...asset, status: "failed" })),
     storage: {
@@ -136,6 +137,67 @@ describe("hardened multipart upload lifecycle", () => {
       12,
     );
     expect(operations.completeSession).toHaveBeenCalled();
+  });
+
+  it("replays the exact completed manifest after processing advances the asset", async () => {
+    const response = res();
+    const operations = ops({
+      findOwnedSession: vi.fn(async () => ({
+        asset: { ...asset, status: "ready" },
+        session: { ...session, status: "completed", completed_parts: parts },
+      })),
+    });
+
+    await handleComplete(
+      req({ parts }, { id: "phjob_1", sessionId: "phups_1" }),
+      response,
+      operations,
+    );
+
+    expect(response.json).toHaveBeenCalledWith({
+      asset: expect.objectContaining({ id: asset.id, status: "ready" }),
+    });
+    expect(operations.completeSession).not.toHaveBeenCalled();
+    expect(operations.publishUploaded).toHaveBeenCalledWith(
+      expect.objectContaining({ id: asset.id, status: "ready" }),
+    );
+    await expect(
+      handleComplete(
+        req(
+          { parts: [{ ...parts[0], etag: "different" }] },
+          { id: "phjob_1", sessionId: "phups_1" },
+        ),
+        res(),
+        operations,
+      ),
+    ).rejects.toThrow("photo_upload_completion_mismatch");
+  });
+  it("retries event publication after the upload commit wins", async () => {
+    const uploaded = { ...asset, status: "uploaded" };
+    const publishUploaded = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("event bus unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const operations = ops({
+      findOwnedSession: vi
+        .fn()
+        .mockResolvedValueOnce({ asset, session })
+        .mockResolvedValueOnce({
+          asset: uploaded,
+          session: { ...session, status: "completed", completed_parts: parts },
+        }),
+      completeSession: vi.fn(async () => uploaded),
+      publishUploaded,
+    });
+
+    await handleComplete(
+      req({ parts }, { id: "phjob_1", sessionId: "phups_1" }),
+      res(),
+      operations,
+    );
+
+    expect(operations.completeSession).toHaveBeenCalledTimes(1);
+    expect(publishUploaded).toHaveBeenCalledTimes(2);
   });
 
   it("reconciles an existing provider object after session expiry", async () => {
@@ -289,7 +351,7 @@ describe("serializable upload operations", () => {
     const context = { transactionManager: {} };
     const service = {
       withPhotoJobTransaction: vi.fn(async (callback, options) => {
-        expect(options).toEqual({ isolationLevel: "SERIALIZABLE" });
+        expect(options).toEqual({ isolationLevel: "serializable" });
         return callback(context);
       }),
       listPhotoUploadSessions: vi.fn(async () => []),
@@ -339,7 +401,7 @@ describe("serializable upload operations", () => {
     const uploaded = { ...asset, status: "uploaded" };
     const service = {
       withPhotoJobTransaction: vi.fn(async (callback, options) => {
-        expect(options).toEqual({ isolationLevel: "SERIALIZABLE" });
+        expect(options).toEqual({ isolationLevel: "serializable" });
         return callback(context);
       }),
       listPhotoUploadSessions: vi.fn(async () => [session]),
@@ -354,6 +416,7 @@ describe("serializable upload operations", () => {
       operations.completeSession(asset, session, {
         bytes: 12,
         checksumCRC32C: "hRHAOg==",
+        parts,
       }),
     ).resolves.toEqual(uploaded);
     expect(service.listPhotoUploadSessions).toHaveBeenCalledWith(
@@ -396,6 +459,7 @@ describe("serializable upload operations", () => {
       operations.completeSession(asset, session, {
         bytes: 12,
         checksumCRC32C: "hRHAOg==",
+        parts,
       }),
     ).rejects.toThrow("photo_upload_not_active");
     expect(service.updatePhotoAssets).not.toHaveBeenCalled();

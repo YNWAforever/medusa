@@ -33,6 +33,7 @@ services:
     environment:
       MINIO_ROOT_USER: fotomax_minio
       MINIO_ROOT_PASSWORD: fotomax_minio_local_only
+      MINIO_API_CORS_ALLOW_ORIGIN: http://127.0.0.1:3100,http://localhost:3100
     ports:
       - "9002:9000"
       - "9003:9001"
@@ -49,8 +50,6 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    volumes:
-      - ./infra/minio/cors.json:/config/cors.json:ro
     entrypoint:
       - /bin/sh
       - -c
@@ -59,7 +58,7 @@ services:
         mc alias set fotomax http://minio:9000 fotomax_minio fotomax_minio_local_only
         mc mb --ignore-existing fotomax/fotomax-photo-private
         mc anonymous set none fotomax/fotomax-photo-private
-        mc cors set fotomax/fotomax-photo-private /config/cors.json
+        exec tail -f /dev/null
 
 volumes:
   fotomax-postgres-data:

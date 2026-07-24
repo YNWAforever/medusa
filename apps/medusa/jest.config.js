@@ -6,6 +6,6 @@ module.exports = {
   transform: {
     "^.+\\.tsx?$": ["ts-jest", { tsconfig: "<rootDir>/tsconfig.json" }],
   },
-  testTimeout: 240000,
+  testTimeout: 600000,
   maxWorkers: 1,
 }

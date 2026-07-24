@@ -20,6 +20,7 @@ export type PhotoCartVersion = {
 export type PhotoCartItem = {
   id: string
   variant_id: string
+  sku?: string | null
   quantity: number
   unit_price_snapshot?: number | null
 }
@@ -28,6 +29,7 @@ export type PhotoCart = {
   customer_id?: string | null
   currency_code?: string | null
   items?: Array<Record<string, unknown>>
+  shipping_methods?: Array<{ shipping_option_id?: string | null }>
 }
 export type PhotoVariantPrice = {
   id: string
@@ -38,6 +40,7 @@ export type PhotoVariantPrice = {
 }
 export type PhotoCartLineInput = {
   variant_id: string
+  sku?: string | null
   quantity: number
   metadata: {
     kind: "photo_print"

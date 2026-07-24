@@ -19,6 +19,7 @@ describe("loadPhotoStorageConfig", () => {
       accessKeyId: "fotomax",
       secretAccessKey: "local-secret",
       forcePathStyle: true,
+      serverSideEncryption: true,
     })
   })
 
@@ -28,6 +29,18 @@ describe("loadPhotoStorageConfig", () => {
     )
   })
 
+  it("allows unencrypted object writes only outside production", () => {
+    expect(loadPhotoStorageConfig({
+      ...validEnv,
+      NODE_ENV: "test",
+      PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false",
+    }).serverSideEncryption).toBe(false)
+    expect(() => loadPhotoStorageConfig({
+      ...validEnv,
+      NODE_ENV: "production",
+      PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false",
+    })).toThrow("photo_storage_config_invalid:PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION")
+  })
   it("rejects invalid endpoints and path-style values", () => {
     expect(() => loadPhotoStorageConfig({ ...validEnv, PHOTO_STORAGE_ENDPOINT: "secret" })).toThrow("photo_storage_config_invalid:PHOTO_STORAGE_ENDPOINT")
     expect(() => loadPhotoStorageConfig({ ...validEnv, PHOTO_STORAGE_FORCE_PATH_STYLE: "yes" })).toThrow("photo_storage_config_invalid:PHOTO_STORAGE_FORCE_PATH_STYLE")
