@@ -14,12 +14,18 @@ import {
 import { PHOTO_STORAGE_MODULE } from "../../../../../modules/photo-storage";
 import {
   PhotoStorageError,
+  photoObjectRef,
+  type PhotoDirectUploadGrant,
+  type PhotoObjectRef,
   type PhotoObjectStorage,
+  type PhotoStorageProvider,
+  type PhotoUploadStrategy,
 } from "../../../../../modules/photo-storage/types";
 
 const PART_SIZE = 8 * 1024 * 1024;
 const MAX_ASSETS = 500;
 const MAX_JOB_BYTES = 10 * 1024 ** 3;
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const SIGNATURE_SECONDS = 900;
 const SIGNATURE_PREFIX_BYTES = 12;
 
@@ -42,6 +48,8 @@ export type UploadAsset = {
   expected_bytes: number;
   reported_mime_type?: string | null;
   detected_mime_type?: string | null;
+  storage_provider?: string | null;
+  provider_etag?: string | null;
   status: string;
   [key: string]: unknown;
 };
@@ -53,6 +61,9 @@ export type UploadSession = {
   part_size: number;
   expected_bytes: number;
   completed_parts?: unknown;
+  completion_metadata?: unknown;
+  storage_provider?: string | null;
+  upload_strategy?: string | null;
   status: string;
   expires_at: Date | string;
   [key: string]: unknown;
@@ -72,8 +83,18 @@ type CreateInput = {
   detectedMime: string;
   expectedBytes: number;
   idempotencyKey: string;
-  providerUploadId: string;
+  provider: PhotoStorageProvider;
+  uploadStrategy: "single-put";
+  providerUploadId: null;
+  partSize: number;
+  completionMetadata: null;
   expiresAt: Date;
+};
+
+type CompletionResult = {
+  bytes: number;
+  etag: string;
+  parts?: CompletedPart[];
 };
 
 export interface UploadOperations {
@@ -96,11 +117,7 @@ export interface UploadOperations {
   completeSession(
     asset: UploadAsset,
     session: UploadSession,
-    result: {
-      bytes: number;
-      checksumCRC32C: string;
-      parts: CompletedPart[];
-    },
+    result: CompletionResult,
   ): Promise<UploadAsset>;
   publishUploaded(asset: UploadAsset): Promise<void>;
   abortSession(
@@ -152,14 +169,81 @@ function safeAsset(asset: UploadAsset) {
   const { object_key: _key, job_id: _job, ...safe } = asset;
   return safe;
 }
-function uploadDto(asset: UploadAsset, session: UploadSession) {
+const SAFE_UPLOAD_HEADERS = new Set([
+  "content-type",
+  "content-length",
+  "x-amz-server-side-encryption",
+  "x-amz-checksum-crc32c",
+  "x-amz-sdk-checksum-algorithm",
+]);
+
+function safeRequiredHeaders(headers: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) =>
+      SAFE_UPLOAD_HEADERS.has(name.toLowerCase()),
+    ),
+  );
+}
+function sessionStrategy(session: UploadSession): PhotoUploadStrategy {
+  const strategy = session.upload_strategy ?? "multipart";
+  if (strategy !== "multipart" && strategy !== "single-put")
+    conflict("photo_upload_not_active");
+  return strategy;
+}
+function recordedRef(asset: UploadAsset, session: UploadSession): PhotoObjectRef {
+  const ref = photoObjectRef(asset, asset.object_key);
+  const provider = session.storage_provider ?? "s3";
+  if (provider !== "s3" && provider !== "vercel-blob")
+    throw new PhotoStorageError("photo_storage_provider_unavailable");
+  if (provider !== ref.provider) conflict("photo_storage_provider_mismatch");
+  return ref;
+}
+function uploadDto(
+  asset: UploadAsset,
+  session: UploadSession,
+  grant?: PhotoDirectUploadGrant,
+) {
+  const strategy = sessionStrategy(session);
+  if (strategy === "multipart") {
+    return {
+      assetId: asset.id,
+      sessionId: session.id,
+      partSize: session.part_size,
+      status: session.status,
+      expiresAt: new Date(session.expires_at).toISOString(),
+    };
+  }
+  if (!grant) conflict("photo_upload_not_active");
+  const ref = recordedRef(asset, session);
+  if (grant.provider !== ref.provider)
+    conflict("photo_storage_provider_mismatch");
   return {
     assetId: asset.id,
     sessionId: session.id,
-    partSize: session.part_size,
+    strategy: "single-put" as const,
+    uploadUrl: grant.url,
+    requiredHeaders: safeRequiredHeaders(grant.requiredHeaders),
     status: session.status,
-    expiresAt: new Date(session.expires_at).toISOString(),
+    expiresAt: grant.expiresAt,
   };
+}
+async function issueExistingUploadDto(
+  operations: UploadOperations,
+  asset: UploadAsset,
+  session: UploadSession,
+) {
+  if (sessionStrategy(session) === "multipart") return uploadDto(asset, session);
+  const ref = recordedRef(asset, session);
+  const contentType = asset.detected_mime_type;
+  if (!contentType) conflict("photo_upload_not_active");
+  const grant = await operations.storage.createDirectUpload({
+    provider: ref.provider,
+    key: ref.key,
+    contentType,
+    maxBytes: MAX_UPLOAD_BYTES,
+    expiresIn: SIGNATURE_SECONDS,
+  });
+  return uploadDto(asset, session, grant);
 }
 function sessionUsable(session: UploadSession) {
   return (
@@ -197,6 +281,22 @@ function parseParts(value: unknown) {
     };
   });
 }
+function parseEtag(value: Record<string, unknown>): string {
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 1 ||
+    keys[0] !== "etag" ||
+    typeof value.etag !== "string" ||
+    !value.etag.trim()
+  )
+    invalid("photo_upload_invalid_input");
+  return value.etag;
+}
+function storedEtag(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const etag = (value as Record<string, unknown>).etag;
+  return typeof etag === "string" && etag ? etag : null;
+}
 function sameParts(value: unknown, parts: CompletedPart[]): boolean {
   if (!Array.isArray(value) || value.length !== parts.length) return false;
   return value.every((item, index) => {
@@ -208,6 +308,14 @@ function sameParts(value: unknown, parts: CompletedPart[]): boolean {
       part.checksumCRC32C === parts[index].checksumCRC32C
     );
   });
+}
+function sameCompletion(
+  session: UploadSession,
+  result: CompletionResult,
+): boolean {
+  return sessionStrategy(session) === "single-put"
+    ? storedEtag(session.completion_metadata) === result.etag
+    : sameParts(session.completed_parts, result.parts ?? []);
 }
 function isCompletedAsset(asset: UploadAsset): boolean {
   return ["uploaded", "processing", "ready", "blocked", "failed"].includes(
@@ -249,33 +357,52 @@ export async function handleCreateUpload(
     !input.sourceIdempotencyKey.trim()
   )
     invalid("photo_upload_invalid_input");
-  let valid
+  let valid;
   try {
     valid = validatePhotoFile({
       filename: input.filename,
       reportedMime: input.reportedMime,
       bytes: input.bytes,
       signature: parseSignature(input.signatureBase64),
-    })
+    });
   } catch (caught) {
-    invalid(caught instanceof Error && caught.message.startsWith("photo_")
-      ? caught.message
-      : "photo_file_unsupported")
+    invalid(
+      caught instanceof Error && caught.message.startsWith("photo_")
+        ? caught.message
+        : "photo_file_unsupported",
+    );
   }
   const key = input.sourceIdempotencyKey.trim();
   const existing = await operations.findSessionByIdempotencyKey(jobId, key);
   if (existing) {
-    res.json({ upload: uploadDto(existing.asset, existing.session) });
+    res.json({
+      upload: await issueExistingUploadDto(
+        operations,
+        existing.asset,
+        existing.session,
+      ),
+    });
     return;
   }
 
   const objectKey = `photo-jobs/${randomUUID()}/originals/${randomUUID()}`;
-  const started = await operations.storage.startMultipartUpload({
+  const provider = operations.storage.defaultProvider;
+  const grant = await operations.storage.createDirectUpload({
+    provider,
     key: objectKey,
     contentType: valid.detectedMime,
+    maxBytes: MAX_UPLOAD_BYTES,
+    expiresIn: SIGNATURE_SECONDS,
   });
+  const grantedRef = { provider: grant.provider, key: objectKey };
+  if (grant.provider !== provider) {
+    await operations.storage.delete([grantedRef]);
+    conflict("photo_storage_provider_mismatch");
+  }
+
+  let created;
   try {
-    const created = await operations.createAssetAndSession({
+    created = await operations.createAssetAndSession({
       jobId,
       displayName: valid.displayName,
       objectKey,
@@ -283,22 +410,30 @@ export async function handleCreateUpload(
       detectedMime: valid.detectedMime,
       expectedBytes: input.bytes,
       idempotencyKey: key,
-      providerUploadId: started.uploadId,
-      expiresAt: new Date(Date.now() + SIGNATURE_SECONDS * 1000),
+      provider: grant.provider,
+      uploadStrategy: "single-put",
+      providerUploadId: null,
+      partSize: input.bytes,
+      completionMetadata: null,
+      expiresAt: new Date(grant.expiresAt),
     });
-    if (!created.created)
-      await operations.storage.abortMultipartUpload({
-        key: objectKey,
-        uploadId: started.uploadId,
-      });
-    res.json({ upload: uploadDto(created.asset, created.session) });
   } catch (caught) {
-    await operations.storage.abortMultipartUpload({
-      key: objectKey,
-      uploadId: started.uploadId,
-    });
+    await operations.storage.delete([grantedRef]);
     throw caught;
   }
+
+  if (!created.created) {
+    await operations.storage.delete([grantedRef]);
+    res.json({
+      upload: await issueExistingUploadDto(
+        operations,
+        created.asset,
+        created.session,
+      ),
+    });
+    return;
+  }
+  res.json({ upload: uploadDto(created.asset, created.session, grant) });
 }
 
 export async function handleSignPart(
@@ -311,7 +446,13 @@ export async function handleSignPart(
     param(req, "id"),
     param(req, "sessionId"),
   );
-  if (found.session.status !== "active") conflict("photo_upload_not_active");
+  const ref = recordedRef(found.asset, found.session);
+  if (
+    sessionStrategy(found.session) !== "multipart" ||
+    ref.provider !== "s3" ||
+    found.session.status !== "active"
+  )
+    conflict("photo_upload_not_active");
   if (!sessionUsable(found.session)) conflict("photo_upload_expired");
   const input = body(req.body);
   const partNumber = input.partNumber;
@@ -322,8 +463,9 @@ export async function handleSignPart(
     typeof input.checksumCRC32C !== "string"
   )
     invalid("photo_upload_invalid_part");
-  const signed = await operations.storage.signUploadPart({
-    key: found.asset.object_key,
+  const signed = await operations.storage.signLegacyPart({
+    provider: "s3",
+    key: ref.key,
     uploadId:
       found.session.provider_upload_id || conflict("photo_upload_not_active"),
     partNumber: partNumber as number,
@@ -336,16 +478,18 @@ export async function handleSignPart(
 async function inspectStoredObject(
   operations: UploadOperations,
   asset: UploadAsset,
+  ref: PhotoObjectRef,
+  expectedEtag?: string,
 ) {
-  const [head, prefix] = await Promise.all([
-    operations.storage.headPrivateObject(asset.object_key),
-    operations.storage.readPrivateObjectPrefix(
-      asset.object_key,
-      SIGNATURE_PREFIX_BYTES,
-    ),
-  ]);
+  const head = await operations.storage.inspect(ref);
   if (head.bytes !== asset.expected_bytes)
     conflict("photo_upload_size_mismatch");
+  if (expectedEtag !== undefined && head.etag !== expectedEtag)
+    conflict("photo_upload_completion_mismatch");
+  const prefix = await operations.storage.readPrefix(
+    ref,
+    SIGNATURE_PREFIX_BYTES,
+  );
   let actual;
   try {
     actual = validatePhotoFile({
@@ -375,9 +519,19 @@ export async function handleComplete(
     param(req, "id"),
     param(req, "sessionId"),
   );
-  const parts = parseParts(body(req.body).parts);
+  const strategy = sessionStrategy(found.session);
+  const ref = recordedRef(found.asset, found.session);
+  const input = body(req.body);
+  const etag = strategy === "single-put" ? parseEtag(input) : undefined;
+  const parts = strategy === "multipart" ? parseParts(input.parts) : undefined;
+  const requested: CompletionResult = {
+    bytes: found.asset.expected_bytes,
+    etag: etag ?? "",
+    ...(parts ? { parts } : {}),
+  };
+
   if (found.session.status === "completed") {
-    if (!sameParts(found.session.completed_parts, parts))
+    if (!sameCompletion(found.session, requested))
       conflict("photo_upload_completion_mismatch");
     if (!isCompletedAsset(found.asset)) conflict("photo_upload_not_active");
     await operations.publishUploaded(found.asset);
@@ -386,47 +540,59 @@ export async function handleComplete(
   }
   if (found.session.status !== "active") conflict("photo_upload_not_active");
 
-  let objectExists = true;
-  try {
-    await operations.storage.headPrivateObject(found.asset.object_key);
-  } catch (caught) {
-    if (!storageMissing(caught)) throw caught;
-    objectExists = false;
-  }
-  if (!objectExists) {
-    if (!sessionUsable(found.session)) conflict("photo_upload_expired");
-    await operations.storage.completeMultipartUpload({
-      key: found.asset.object_key,
-      uploadId:
-        found.session.provider_upload_id || conflict("photo_upload_not_active"),
-      parts,
-    });
+  if (strategy === "multipart") {
+    if (ref.provider !== "s3") conflict("photo_upload_not_active");
+    let objectExists = true;
+    try {
+      await operations.storage.inspect(ref);
+    } catch (caught) {
+      if (!storageMissing(caught)) throw caught;
+      objectExists = false;
+    }
+    if (!objectExists) {
+      if (!sessionUsable(found.session)) conflict("photo_upload_expired");
+      await operations.storage.completeLegacyMultipart({
+        provider: "s3",
+        key: ref.key,
+        uploadId:
+          found.session.provider_upload_id ||
+          conflict("photo_upload_not_active"),
+        parts: parts ?? [],
+      });
+    }
   }
 
   let head;
   try {
-    head = await inspectStoredObject(operations, found.asset);
+    head = await inspectStoredObject(operations, found.asset, ref, etag);
   } catch (caught) {
     const invalidObject =
       caught instanceof MedusaError &&
-      ["photo_upload_size_mismatch", "photo_upload_metadata_mismatch"].includes(
-        caught.message,
-      );
+      [
+        "photo_upload_size_mismatch",
+        "photo_upload_metadata_mismatch",
+        "photo_upload_completion_mismatch",
+      ].includes(caught.message);
     if (invalidObject) {
-      await operations.storage.deletePrivateObjects([found.asset.object_key]);
+      await operations.storage.delete([ref]);
       await operations.failSession(found.asset, found.session, caught.message);
     }
     throw caught;
   }
 
+  const result: CompletionResult = {
+    bytes: head.bytes,
+    etag: head.etag,
+    ...(parts ? { parts } : {}),
+  };
   try {
-    const asset = await operations.completeSession(found.asset, found.session, {
-      bytes: head.bytes,
-      checksumCRC32C: head.checksumCRC32C,
-      parts,
-    });
-    await operations.publishUploaded(asset);
-    res.json({ asset: safeAsset(asset) });
+    const completedAsset = await operations.completeSession(
+      found.asset,
+      found.session,
+      result,
+    );
+    await operations.publishUploaded(completedAsset);
+    res.json({ asset: safeAsset(completedAsset) });
   } catch (caught) {
     found = await operations.findOwnedSession(
       req,
@@ -434,7 +600,7 @@ export async function handleComplete(
       param(req, "sessionId"),
     );
     if (found.session.status === "completed") {
-      if (!sameParts(found.session.completed_parts, parts))
+      if (!sameCompletion(found.session, result))
         conflict("photo_upload_completion_mismatch");
       if (!isCompletedAsset(found.asset)) throw caught;
       await operations.publishUploaded(found.asset);
@@ -455,20 +621,25 @@ export async function handleAbort(
     param(req, "id"),
     param(req, "sessionId"),
   );
+  const strategy = sessionStrategy(found.session);
+  const ref = recordedRef(found.asset, found.session);
+  if (strategy === "multipart" && ref.provider !== "s3")
+    conflict("photo_upload_not_active");
   if (found.session.status === "completed") conflict("photo_upload_not_active");
   const asset =
     found.session.status === "aborted"
       ? found.asset
       : await operations.abortSession(found.asset, found.session);
   try {
-    if (found.session.provider_upload_id) {
-      await operations.storage.abortMultipartUpload({
-        key: found.asset.object_key,
+    if (strategy === "multipart" && found.session.provider_upload_id) {
+      await operations.storage.abortLegacyMultipart({
+        provider: "s3",
+        key: ref.key,
         uploadId: found.session.provider_upload_id,
       });
     }
   } finally {
-    await operations.storage.deletePrivateObjects([found.asset.object_key]);
+    await operations.storage.delete([ref]);
   }
   res.json({ asset: safeAsset(asset) });
 }
@@ -535,17 +706,24 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
     asset: UploadAsset,
     session: UploadSession,
     target: "completed" | "aborted",
-    code?: string,
-    completedParts?: CompletedPart[],
+    completion?: CompletionResult,
+    failureCode?: string,
   ) {
+    const originalRef = recordedRef(asset, session);
     try {
       return await service.withPhotoJobTransaction(
         async (context: any) => {
           const latestSession = await listSession(session.id, context);
           const latestAsset = await retrieveAsset(asset.id, context);
           if (!latestSession || !latestAsset) notFound();
+          const latestRef = recordedRef(latestAsset, latestSession);
+          if (
+            latestRef.provider !== originalRef.provider ||
+            latestRef.key !== originalRef.key
+          )
+            conflict("photo_storage_provider_mismatch");
           if (target === "completed" && latestSession.status === "completed") {
-            if (!sameParts(latestSession.completed_parts, completedParts ?? []))
+            if (!completion || !sameCompletion(latestSession, completion))
               conflict("photo_upload_completion_mismatch");
             if (!isCompletedAsset(latestAsset)) transitionConflict();
             return latestAsset;
@@ -565,18 +743,39 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
               assetTarget,
             ),
           );
+          const strategy = sessionStrategy(latestSession);
+          let sessionData;
+          let assetData;
+          if (target === "completed") {
+            const completed =
+              completion || conflict("photo_upload_completion_mismatch");
+            sessionData = {
+              status: target,
+              completed_at: new Date(),
+              ...(strategy === "single-put"
+                ? { completion_metadata: { etag: completed.etag } }
+                : { completed_parts: completed.parts ?? [] }),
+            };
+            assetData = {
+              status: assetTarget,
+              stored_bytes: completed.bytes,
+              provider_etag: completed.etag,
+              uploaded_at: new Date(),
+              failure_code: null,
+            };
+          } else {
+            sessionData = { status: target, aborted_at: new Date() };
+            assetData = {
+              status: assetTarget,
+              failure_code: failureCode || "retry",
+              failed_at: new Date(),
+            };
+          }
           const updatedSession = firstUpdated(
             await service.updatePhotoUploadSessions(
               {
                 selector: { id: session.id, status: "active" },
-                data:
-                  target === "completed"
-                    ? {
-                        status: target,
-                        completed_at: new Date(),
-                        completed_parts: completedParts,
-                      }
-                    : { status: target, aborted_at: new Date() },
+                data: sessionData,
               },
               context,
             ),
@@ -586,20 +785,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
             await service.updatePhotoAssets(
               {
                 selector: { id: asset.id, status: "uploading" },
-                data:
-                  target === "completed"
-                    ? {
-                        status: assetTarget,
-                        stored_bytes: asset.expected_bytes,
-                        crc32c: code,
-                        uploaded_at: new Date(),
-                        failure_code: null,
-                      }
-                    : {
-                        status: assetTarget,
-                        failure_code: code || "retry",
-                        failed_at: new Date(),
-                      },
+                data: assetData,
               },
               context,
             ),
@@ -664,6 +850,7 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
                 reported_mime_type: input.reportedMime,
                 detected_mime_type: input.detectedMime,
                 expected_bytes: input.expectedBytes,
+                storage_provider: input.provider,
                 status: "uploading",
                 upload_started_at: new Date(),
               },
@@ -673,9 +860,12 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
               {
                 asset_id: asset.id,
                 source_idempotency_key: `${input.jobId}:${input.idempotencyKey}`,
+                storage_provider: input.provider,
+                upload_strategy: input.uploadStrategy,
                 provider_upload_id: input.providerUploadId,
-                part_size: PART_SIZE,
+                part_size: input.partSize,
                 expected_bytes: input.expectedBytes,
+                completion_metadata: input.completionMetadata,
                 status: "active",
                 expires_at: input.expiresAt,
               },
@@ -717,13 +907,8 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
       return { asset, session };
     },
     async completeSession(asset, session, result) {
-      return mutateTerminal(
-        { ...asset, expected_bytes: result.bytes },
-        session,
-        "completed",
-        result.checksumCRC32C,
-        result.parts,
-      );
+      recordedRef(asset, session);
+      return mutateTerminal(asset, session, "completed", result);
     },
     async publishUploaded(asset) {
       await req.scope.resolve("event_bus").emit({
@@ -732,10 +917,16 @@ export function createMedusaUploadOperations(req: Request): UploadOperations {
       });
     },
     async abortSession(asset, session) {
-      return mutateTerminal(asset, session, "aborted", "retry");
+      return mutateTerminal(asset, session, "aborted", undefined, "retry");
     },
     async failSession(asset, session, code) {
-      return mutateTerminal(asset, session, "aborted", code.slice(0, 120));
+      return mutateTerminal(
+        asset,
+        session,
+        "aborted",
+        undefined,
+        code.slice(0, 120),
+      );
     },
   };
 }
