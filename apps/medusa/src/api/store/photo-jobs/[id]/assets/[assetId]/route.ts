@@ -103,6 +103,9 @@ export async function DELETE(req: any, res: any): Promise<void> {
       });
     }
   }
-  await storage.delete([photoObjectRef(asset, asset.object_key)]);
+  const refs = [asset.object_key, asset.preview_key]
+    .filter((key): key is string => typeof key === "string" && key.length > 0)
+    .map((key) => photoObjectRef(asset, key));
+  if (refs.length) await storage.delete(refs);
   res.json({ asset: { id: asset.id, status: "deleted" } });
 }

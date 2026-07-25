@@ -6,6 +6,7 @@ function fixture(owner = "cus_1", provider = "vercel-blob") {
     id: "asset_1",
     job_id: "job_1",
     object_key: "private/key",
+    preview_key: null as string | null,
     storage_provider: provider,
     status: "uploaded",
   };
@@ -67,6 +68,18 @@ describe("owned photo asset delete", () => {
     });
   });
 
+  it("deletes original and preview refs on the persisted provider", async () => {
+    const { asset, storage, req, res } = fixture();
+    asset.preview_key = "private/preview";
+
+    await DELETE(req, res);
+
+    expect(storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: asset.object_key },
+      { provider: "vercel-blob", key: asset.preview_key },
+    ]);
+  });
+
   it("leaves provider bytes untouched when the database transition fails", async () => {
     const { service, storage, req, res } = fixture();
     service.withPhotoJobTransaction.mockRejectedValue(
@@ -78,8 +91,20 @@ describe("owned photo asset delete", () => {
 
   it("keeps deleted state retryable when provider cleanup fails", async () => {
     const { asset, service, storage, req, res } = fixture();
+    asset.preview_key = "private/preview";
     storage.delete.mockRejectedValueOnce(new Error("provider unavailable"));
     await expect(DELETE(req, res)).rejects.toThrow("provider unavailable");
+    expect(storage.delete).toHaveBeenNthCalledWith(1, [
+      { provider: "vercel-blob", key: asset.object_key },
+      { provider: "vercel-blob", key: asset.preview_key },
+    ]);
+    expect(service.updatePhotoAssets).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          provider_cleanup_completed_at: expect.any(Date),
+        }),
+      }),
+    );
     service.retrievePhotoAsset.mockResolvedValue({ ...asset, status: "deleted" });
     storage.delete.mockResolvedValueOnce(undefined);
     await DELETE(req, res);
@@ -87,6 +112,17 @@ describe("owned photo asset delete", () => {
     expect(res.json).toHaveBeenCalledWith({
       asset: { id: "asset_1", status: "deleted" },
     });
+  });
+
+  it("rejects an invalid persisted provider before calling storage", async () => {
+    const { asset, storage, req, res } = fixture("cus_1", "invalid");
+    asset.preview_key = "private/preview";
+
+    await expect(DELETE(req, res)).rejects.toThrow(
+      "photo_storage_provider_unavailable",
+    );
+    expect(storage.abortLegacyMultipart).not.toHaveBeenCalled();
+    expect(storage.delete).not.toHaveBeenCalled();
   });
 
   it("does not swallow persisted s3 multipart abort failures", async () => {

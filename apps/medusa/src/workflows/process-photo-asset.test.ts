@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { processImage } from "../modules/photo-production/image-processor";
+import { photoObjectRef } from "../modules/photo-storage/types";
 import { processPhotoAsset } from "./process-photo-asset";
 
 vi.mock("../modules/photo-production/image-processor", () => ({
@@ -10,6 +11,14 @@ vi.mock("../modules/photo-production/image-processor", () => ({
 const originalKey =
   "photo-jobs/123e4567-e89b-42d3-a456-426614174000/originals/123e4567-e89b-42d3-a456-426614174001";
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3]);
+
+describe("photoObjectRef", () => {
+  it("rejects an invalid persisted provider with a stable error", () => {
+    expect(() =>
+      photoObjectRef({ storage_provider: "invalid" }, originalKey),
+    ).toThrow("photo_storage_provider_unavailable");
+  });
+});
 
 function fixture() {
   let current: Record<string, any> = {

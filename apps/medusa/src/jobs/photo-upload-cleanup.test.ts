@@ -6,6 +6,7 @@ function fixture() {
     id: "asset_1",
     job_id: "job_1",
     object_key: "private/random",
+    preview_key: null as string | null,
     storage_provider: "vercel-blob",
     display_name: "secret-name.jpg",
     status: "uploading",
@@ -122,6 +123,7 @@ describe("photo upload cleanup", () => {
 
   it("removes completed cleanup from the retry query", async () => {
     const f = fixture();
+    f.asset.preview_key = "private/preview";
     f.service.listPhotoUploadSessions.mockResolvedValue([]);
     f.service.listPhotoAssets.mockResolvedValue([
       { ...f.asset, status: "deleted" },
@@ -136,8 +138,36 @@ describe("photo upload cleanup", () => {
     );
     expect(f.storage.delete).toHaveBeenCalledWith([
       { provider: "vercel-blob", key: f.asset.object_key },
+      { provider: "vercel-blob", key: f.asset.preview_key },
     ]);
     expect(f.service.updatePhotoAssets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          provider_cleanup_completed_at: expect.any(Date),
+        }),
+      }),
+    );
+  });
+
+  it("does not complete cleanup when deleting asset objects fails", async () => {
+    const f = fixture();
+    f.asset.preview_key = "private/preview";
+    f.service.listPhotoUploadSessions.mockResolvedValue([]);
+    f.service.listPhotoAssets.mockResolvedValue([
+      { ...f.asset, status: "deleted" },
+    ]);
+    f.storage.delete.mockRejectedValue(new Error("provider unavailable"));
+
+    await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
+      failures: 1,
+      deletedAssets: 0,
+    });
+
+    expect(f.storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: f.asset.object_key },
+      { provider: "vercel-blob", key: f.asset.preview_key },
+    ]);
+    expect(f.service.updatePhotoAssets).not.toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           provider_cleanup_completed_at: expect.any(Date),
