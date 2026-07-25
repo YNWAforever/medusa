@@ -1,4 +1,8 @@
-import type { PhotoStorageConfig } from "./types"
+import type {
+  PhotoStorageConfig,
+  PhotoStorageProvider,
+  PhotoStorageRuntimeConfig,
+} from "./types"
 
 type Environment = Record<string, string | undefined>
 
@@ -6,6 +10,14 @@ function required(env: Environment, name: string): string {
   const value = env[name]?.trim()
   if (!value) throw new Error(`photo_storage_config_invalid:${name}`)
   return value
+}
+
+function loadPhotoStorageProvider(env: Environment): PhotoStorageProvider {
+  const provider = required(env, "PHOTO_STORAGE_PROVIDER")
+  if (provider !== "s3" && provider !== "vercel-blob") {
+    throw new Error("photo_storage_config_invalid:PHOTO_STORAGE_PROVIDER")
+  }
+  return provider
 }
 
 export function loadPhotoStorageConfig(env: Environment): PhotoStorageConfig {
@@ -23,7 +35,7 @@ export function loadPhotoStorageConfig(env: Environment): PhotoStorageConfig {
   }
 
   const encryption = env.PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION?.trim() ?? "true"
-  if (!['true', 'false'].includes(encryption) || (encryption === 'false' && env.NODE_ENV === 'production')) {
+  if (!["true", "false"].includes(encryption) || (encryption === "false" && env.NODE_ENV === "production")) {
     throw new Error("photo_storage_config_invalid:PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION")
   }
 
@@ -35,5 +47,22 @@ export function loadPhotoStorageConfig(env: Environment): PhotoStorageConfig {
     secretAccessKey: required(env, "PHOTO_STORAGE_SECRET_KEY"),
     forcePathStyle: pathStyle === "true",
     serverSideEncryption: encryption === "true",
+  }
+}
+
+export function loadPhotoStorageRuntimeConfig(env: Environment): PhotoStorageRuntimeConfig {
+  const defaultProvider = loadPhotoStorageProvider(env)
+  const s3 = defaultProvider === "s3" || env.PHOTO_STORAGE_ENDPOINT?.trim()
+    ? loadPhotoStorageConfig(env)
+    : undefined
+  const blobToken = env.BLOB_READ_WRITE_TOKEN?.trim()
+  const vercelBlob = defaultProvider === "vercel-blob" || blobToken
+    ? { token: required(env, "BLOB_READ_WRITE_TOKEN") }
+    : undefined
+
+  return {
+    defaultProvider,
+    ...(s3 ? { s3 } : {}),
+    ...(vercelBlob ? { vercelBlob } : {}),
   }
 }
