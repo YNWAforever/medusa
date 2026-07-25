@@ -70,7 +70,7 @@ export interface LegacyMultipartStorage {
   }): Promise<void>
 }
 
-export interface PhotoObjectStorage {
+export interface LegacyPhotoObjectStorage {
   startMultipartUpload(input: { key: string; contentType: string }): Promise<{ uploadId: string }>
   signUploadPart(input: { key: string; uploadId: string; partNumber: number; checksumCRC32C: string; expiresIn?: number }): Promise<{ url: string; expiresAt: string; requiredHeaders: Record<string, string> }>
   completeMultipartUpload(input: { key: string; uploadId: string; parts: Array<{ partNumber: number; etag: string; checksumCRC32C: string }> }): Promise<{ etag: string; checksumCRC32C: string }>
@@ -82,6 +82,58 @@ export interface PhotoObjectStorage {
   signPrivateRead(key: string, expiresIn?: number): Promise<{ url: string; expiresAt: string }>
   signPrivateOriginalRead(key: string, expiresIn?: number): Promise<{ url: string; expiresAt: string }>
   deletePrivateObjects(keys: string[]): Promise<void>
+}
+
+export interface PhotoObjectStorage {
+  readonly defaultProvider: PhotoStorageProvider
+  createDirectUpload(input: {
+    provider: PhotoStorageProvider
+    key: string
+    contentType: string
+    maxBytes: number
+    expiresIn: number
+  }): Promise<PhotoDirectUploadGrant>
+  inspect(ref: PhotoObjectRef): Promise<PhotoObjectInfo>
+  readPrefix(ref: PhotoObjectRef, maxBytes: number): Promise<Uint8Array>
+  read(ref: PhotoObjectRef): Promise<Readable>
+  writePreview(input: {
+    ref: PhotoObjectRef
+    bytes: Buffer
+    contentType: "image/jpeg"
+  }): Promise<{ etag: string }>
+  signRead(
+    ref: PhotoObjectRef,
+    expiresIn: number,
+  ): Promise<{ url: string; expiresAt: string }>
+  delete(refs: PhotoObjectRef[]): Promise<void>
+  startLegacyMultipart(input: {
+    provider: "s3"
+    key: string
+    contentType: string
+  }): Promise<{ uploadId: string }>
+  signLegacyPart(input: {
+    provider: "s3"
+    key: string
+    uploadId: string
+    partNumber: number
+    checksumCRC32C: string
+    expiresIn?: number
+  }): Promise<PhotoDirectUploadGrant>
+  completeLegacyMultipart(input: {
+    provider: "s3"
+    key: string
+    uploadId: string
+    parts: Array<{
+      partNumber: number
+      etag: string
+      checksumCRC32C: string
+    }>
+  }): Promise<{ etag: string }>
+  abortLegacyMultipart(input: {
+    provider: "s3"
+    key: string
+    uploadId: string
+  }): Promise<void>
 }
 
 export interface PhotoS3Config {

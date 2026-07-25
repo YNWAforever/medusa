@@ -7,4 +7,10 @@ export default Module(PHOTO_STORAGE_MODULE, {
   service: PhotoStorageModuleService,
 })
 
-export type { PhotoObjectStorage } from "./types"
+export { S3PhotoStorageAdapter } from "./s3-adapter"
+export { VercelBlobPhotoStorageAdapter } from "./vercel-blob-adapter"
+export type {
+  PhotoObjectRef,
+  PhotoObjectStorage,
+  PhotoStorageProvider,
+} from "./types"
