@@ -22,10 +22,11 @@ describe("photo production Admin operations", () => {
   })
 
   it("requires an approved reason, same-job asset, audit write, and at most 300 seconds", async () => {
-    const service: any = { retrievePhotoAsset: vi.fn(async () => ({ id: "asset_1", job_id: "job_1", object_key: "private-key" })), createPhotoAssetAccessAudits: vi.fn(async () => ({})) }
-    const storage: any = { signPrivateOriginalRead: vi.fn(async () => ({ url: "https://signed.test", expiresAt: "2026-07-20T00:05:00.000Z" })) }
+    const service: any = { retrievePhotoAsset: vi.fn(async () => ({ id: "asset_1", job_id: "job_1", object_key: "private-key", storage_provider: "vercel-blob" })), createPhotoAssetAccessAudits: vi.fn(async () => ({})) }
+    const signRead = vi.fn(async () => ({ url: "https://signed.test", expiresAt: "2026-07-20T00:05:00.000Z" }))
+    const storage: any = { signRead }
     await expect(requestAuditedAssetAccess({ jobId: "job_1", assetId: "asset_1", actorId: "user_1", reason: "production", requestId: "req_1" }, { service, storage })).resolves.toMatchObject({ url: "https://signed.test" })
-    expect(storage.signPrivateOriginalRead).toHaveBeenCalledWith("private-key", 300)
+    expect(storage.signRead).toHaveBeenCalledWith({ provider: "vercel-blob", key: "private-key" }, 300)
     expect(service.createPhotoAssetAccessAudits).toHaveBeenCalledWith(expect.objectContaining({ actor_id: "user_1", reason: "production", action: "read_original" }))
     await expect(requestAuditedAssetAccess({ jobId: "job_1", assetId: "asset_1", actorId: "user_1", reason: "curiosity" }, { service, storage })).rejects.toThrow("photo_access_reason_invalid")
     service.retrievePhotoAsset.mockResolvedValue({ id: "asset_1", job_id: "job_2", object_key: "private-key" })

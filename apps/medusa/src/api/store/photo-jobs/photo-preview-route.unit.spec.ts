@@ -12,15 +12,15 @@ function fixture(owner = "cus_1", status = "ready") {
       id: "asset_1",
       job_id: "job_1",
       status,
+      storage_provider: "vercel-blob",
       preview_key: "photo-jobs/preview.jpg",
     })),
   };
-  const storage = {
-    signPrivateRead: vi.fn(async () => ({
-      url: "https://signed.test/preview?secret=1",
-      expiresAt: new Date().toISOString(),
-    })),
-  };
+  const signRead = vi.fn(async () => ({
+    url: "https://signed.test/preview?secret=1",
+    expiresAt: new Date().toISOString(),
+  }));
+  const storage = { signRead };
   const req = {
     params: { id: "job_1", assetId: "asset_1" },
     auth_context: { actor_id: "cus_1" },
@@ -41,8 +41,8 @@ describe("owned photo preview route", () => {
   it("returns only a private no-store 302 signed for 300 seconds", async () => {
     const f = fixture();
     await GET(f.req as any, f.res as any);
-    expect(f.storage.signPrivateRead).toHaveBeenCalledWith(
-      "photo-jobs/preview.jpg",
+    expect(f.storage.signRead).toHaveBeenCalledWith(
+      { provider: "vercel-blob", key: "photo-jobs/preview.jpg" },
       300,
     );
     expect(f.res.status).toHaveBeenCalledWith(302);
@@ -65,6 +65,6 @@ describe("owned photo preview route", () => {
     await expect(GET(f.req as any, f.res as any)).rejects.toThrow(
       "photo_job_not_found",
     );
-    expect(f.storage.signPrivateRead).not.toHaveBeenCalled();
+    expect(f.storage.signRead).not.toHaveBeenCalled();
   });
 });

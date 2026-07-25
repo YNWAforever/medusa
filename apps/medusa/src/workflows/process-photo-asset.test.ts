@@ -16,6 +16,7 @@ function fixture() {
     id: "asset_1",
     job_id: "job_1",
     object_key: originalKey,
+    storage_provider: "vercel-blob",
     display_name: "photo.jpg",
     reported_mime_type: "image/jpeg",
     expected_bytes: jpeg.length,
@@ -41,16 +42,21 @@ function fixture() {
     updatePhotoAssets,
     listPhotoAssets: vi.fn(async () => []),
   };
+  const inspect = vi.fn(async () => ({
+    bytes: jpeg.length,
+    contentType: "image/jpeg",
+    etag: "etag",
+  }));
+  const readPrefix = vi.fn(async () => jpeg);
+  const read = vi.fn(async () => Readable.from(jpeg));
+  const writePreview = vi.fn(async () => ({ etag: "preview-etag" }));
+  const deleteObjects = vi.fn(async () => undefined);
   const storage = {
-    headPrivateObject: vi.fn(async () => ({
-      bytes: jpeg.length,
-      contentType: "image/jpeg",
-      checksumCRC32C: "sum",
-    })),
-    readPrivateObjectPrefix: vi.fn(async () => jpeg),
-    readPrivateObject: vi.fn(async () => Readable.from(jpeg)),
-    writePrivatePreview: vi.fn(async () => undefined),
-    deletePrivateObjects: vi.fn(async () => undefined),
+    inspect,
+    readPrefix,
+    read,
+    writePreview,
+    delete: deleteObjects,
   };
   const acquired: string[] = [];
   const locking = {
@@ -91,24 +97,44 @@ describe("processPhotoAsset", () => {
 
   it("retries transient storage failures three times and then succeeds", async () => {
     const f = fixture();
-    f.storage.headPrivateObject
+    f.storage.inspect
       .mockRejectedValueOnce(new Error("photo_storage_provider_error"))
       .mockRejectedValueOnce(new Error("photo_storage_provider_error"));
     await expect(processPhotoAsset("asset_1", f as any)).resolves.toMatchObject(
       { status: "ready", processing_attempts: 3 },
     );
-    expect(f.storage.headPrivateObject).toHaveBeenCalledTimes(3);
+    expect(f.storage.inspect).toHaveBeenCalledTimes(3);
+    expect(f.storage.inspect).toHaveBeenCalledWith({
+      provider: "vercel-blob",
+      key: originalKey,
+    });
+    expect(f.storage.readPrefix).toHaveBeenCalledWith(
+      { provider: "vercel-blob", key: originalKey },
+      64,
+    );
+    expect(f.storage.read).toHaveBeenCalledWith({
+      provider: "vercel-blob",
+      key: originalKey,
+    });
+    expect(f.storage.writePreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref: {
+          provider: "vercel-blob",
+          key: expect.stringContaining("/previews/"),
+        },
+      }),
+    );
   });
 
   it("dead-letters exhausted transient failures and emits an event", async () => {
     const f = fixture();
-    f.storage.headPrivateObject.mockRejectedValue(
+    f.storage.inspect.mockRejectedValue(
       new Error("photo_storage_provider_error"),
     );
     await expect(processPhotoAsset("asset_1", f as any)).resolves.toMatchObject(
       { status: "failed", failure_class: "dead_letter" },
     );
-    expect(f.storage.headPrivateObject).toHaveBeenCalledTimes(3);
+    expect(f.storage.inspect).toHaveBeenCalledTimes(3);
     expect(f.eventBus.emit).toHaveBeenCalledWith({
       name: "photo_asset.dead_lettered",
       data: { asset_id: "asset_1" },
@@ -135,13 +161,16 @@ describe("processPhotoAsset", () => {
       { status: "blocked", failure_code: "duplicate_asset" },
     );
     expect(f.acquired).toContain("photo-job:job_1:dedupe");
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledWith([originalKey]);
+    expect(f.storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: originalKey },
+    ]);
   });
 
   it("does not overwrite deletion that wins during preview generation", async () => {
     const f = fixture();
-    f.storage.writePrivatePreview.mockImplementation(async () => {
+    f.storage.writePreview.mockImplementation(async () => {
       f.current = { ...f.current, status: "deleted" };
+      return { etag: "preview-etag" };
     });
     await expect(processPhotoAsset("asset_1", f as any)).resolves.toMatchObject(
       { status: "deleted" },
@@ -168,10 +197,13 @@ describe("processPhotoAsset", () => {
     await expect(processPhotoAsset("asset_1", f as any)).resolves.toMatchObject(
       { status: "failed", failure_class: "dead_letter" },
     );
-    expect(f.storage.writePrivatePreview).toHaveBeenCalledTimes(3);
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledTimes(3);
-    expect(f.storage.deletePrivateObjects).toHaveBeenLastCalledWith([
-      expect.stringContaining("/previews/"),
+    expect(f.storage.writePreview).toHaveBeenCalledTimes(3);
+    expect(f.storage.delete).toHaveBeenCalledTimes(3);
+    expect(f.storage.delete).toHaveBeenLastCalledWith([
+      {
+        provider: "vercel-blob",
+        key: expect.stringContaining("/previews/"),
+      },
     ]);
   });
 
@@ -184,7 +216,7 @@ describe("processPhotoAsset", () => {
     await expect(processPhotoAsset("asset_1", f as any)).rejects.toThrow(
       "database_unavailable",
     );
-    expect(f.storage.headPrivateObject).not.toHaveBeenCalled();
+    expect(f.storage.inspect).not.toHaveBeenCalled();
   });
   it("leaves unaudited dead letters untouched", async () => {
     const f = fixture();
@@ -197,6 +229,20 @@ describe("processPhotoAsset", () => {
     await expect(processPhotoAsset("asset_1", f as any)).resolves.toMatchObject(
       { status: "failed", failure_class: "dead_letter" },
     );
-    expect(f.storage.headPrivateObject).not.toHaveBeenCalled();
+    expect(f.storage.inspect).not.toHaveBeenCalled();
+  });
+
+  it("routes historical assets without a provider to s3", async () => {
+    const f = fixture();
+    delete f.current.storage_provider;
+    f.service.listPhotoAssets.mockResolvedValue([
+      { id: "ready_1", job_id: "job_1", status: "ready" },
+    ]);
+
+    await processPhotoAsset("asset_1", f as any);
+
+    expect(f.storage.delete).toHaveBeenCalledWith([
+      { provider: "s3", key: originalKey },
+    ]);
   });
 });

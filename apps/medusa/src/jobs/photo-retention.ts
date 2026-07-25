@@ -4,6 +4,7 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { PHOTO_PRODUCTION_MODULE } from "../modules/photo-production"
 import { isRetentionEligible } from "../modules/photo-production/retention"
 import { PHOTO_STORAGE_MODULE } from "../modules/photo-storage"
+import { photoObjectRef, type PhotoObjectRef } from "../modules/photo-storage/types"
 
 export const PHOTO_RETENTION_BATCH = 50
 
@@ -21,9 +22,9 @@ function isNotFound(error: unknown): boolean {
   return error instanceof Error && /not.?found|photo_storage_not_found/i.test(error.message)
 }
 
-async function verifyAbsent(storage: any, key: string): Promise<void> {
+async function verifyAbsent(storage: any, ref: PhotoObjectRef): Promise<void> {
   try {
-    await storage.headPrivateObject(key)
+    await storage.inspect(ref)
     throw new Error("photo_retention_object_present")
   } catch (error) {
     if (isNotFound(error)) return
@@ -55,10 +56,12 @@ export async function runPhotoRetention({
         let objectCount = 0
         for (const asset of assets) {
           if (asset.status === "deleted" && !asset.object_key && !asset.preview_key) continue
-          const keys = [asset.object_key, asset.preview_key].filter((key): key is string => typeof key === "string" && key.length > 0)
-          if (keys.length) {
-            await storage.deletePrivateObjects(keys)
-            for (const key of keys) await verifyAbsent(storage, key)
+          const refs = [asset.object_key, asset.preview_key]
+            .filter((key): key is string => typeof key === "string" && key.length > 0)
+            .map((key) => photoObjectRef(asset, key))
+          if (refs.length) {
+            await storage.delete(refs)
+            for (const ref of refs) await verifyAbsent(storage, ref)
           }
           await service.updatePhotoAssets({
             selector: { id: asset.id },
@@ -72,7 +75,7 @@ export async function runPhotoRetention({
             },
           })
           summary.deletedAssets += 1
-          objectCount += keys.length
+          objectCount += refs.length
         }
         await service.updatePhotoJobs({
           selector: { id: job.id },

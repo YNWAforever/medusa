@@ -6,13 +6,16 @@ function fixture() {
     id: "asset_1",
     job_id: "job_1",
     object_key: "private/random",
+    storage_provider: "vercel-blob",
     display_name: "secret-name.jpg",
     status: "uploading",
   };
   const session = {
     id: "session_1",
     asset_id: asset.id,
-    provider_upload_id: "provider-secret",
+    provider_upload_id: null as string | null,
+    storage_provider: "vercel-blob",
+    upload_strategy: "single-put",
     status: "active",
   };
   const service: Record<string, any> = {
@@ -28,9 +31,11 @@ function fixture() {
     updatePhotoJobs: vi.fn(async () => []),
     listPhotoAssets: vi.fn(async () => []),
   };
+  const abortLegacyMultipart = vi.fn(async () => undefined);
+  const deleteObjects = vi.fn(async () => undefined);
   const storage: Record<string, any> = {
-    abortMultipartUpload: vi.fn(async () => undefined),
-    deletePrivateObjects: vi.fn(async () => undefined),
+    abortLegacyMultipart,
+    delete: deleteObjects,
   };
   const messages: string[] = [];
   const logger = {
@@ -40,13 +45,27 @@ function fixture() {
   return { asset, session, service, storage, logger, messages };
 }
 
+function useLegacyMultipart(f: ReturnType<typeof fixture>) {
+  f.asset.storage_provider = "s3";
+  f.session.storage_provider = "s3";
+  f.session.upload_strategy = "multipart";
+  f.session.provider_upload_id = "provider-secret";
+}
+
 describe("photo upload cleanup", () => {
-  it("expires active sessions only after provider abort succeeds", async () => {
+  it("expires s3 multipart sessions only after provider abort succeeds", async () => {
     const f = fixture();
+    useLegacyMultipart(f);
+
     await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
       expiredSessions: 1,
     });
-    expect(f.storage.abortMultipartUpload).toHaveBeenCalled();
+
+    expect(f.storage.abortLegacyMultipart).toHaveBeenCalledWith({
+      provider: "s3",
+      key: f.asset.object_key,
+      uploadId: "provider-secret",
+    });
     expect(f.service.updatePhotoUploadSessions).toHaveBeenCalledWith(
       expect.objectContaining({
         selector: { id: "session_1", status: "active" },
@@ -57,18 +76,34 @@ describe("photo upload cleanup", () => {
 
   it("rotates provider failures behind later expired sessions", async () => {
     const f = fixture();
-    f.storage.abortMultipartUpload.mockRejectedValue(
+    useLegacyMultipart(f);
+    f.storage.abortLegacyMultipart.mockRejectedValue(
       new Error("provider unavailable"),
     );
+
     await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
       failures: 1,
     });
+
     expect(f.service.updatePhotoUploadSessions).toHaveBeenCalledWith(
       expect.objectContaining({
         selector: { id: "session_1", status: "active" },
         data: { expires_at: expect.any(Date) },
       }),
     );
+  });
+
+  it("deletes a single-put object without aborting multipart", async () => {
+    const f = fixture();
+
+    await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
+      expiredSessions: 1,
+    });
+
+    expect(f.storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: f.asset.object_key },
+    ]);
+    expect(f.storage.abortLegacyMultipart).not.toHaveBeenCalled();
   });
 
   it("defers cancelled-job media to the retention job", async () => {
@@ -82,7 +117,7 @@ describe("photo upload cleanup", () => {
       deletedAssets: 0,
     });
     expect(f.service.listPhotoJobs).not.toHaveBeenCalled();
-    expect(f.storage.deletePrivateObjects).not.toHaveBeenCalled();
+    expect(f.storage.delete).not.toHaveBeenCalled();
   });
 
   it("removes completed cleanup from the retry query", async () => {
@@ -99,6 +134,9 @@ describe("photo upload cleanup", () => {
         withDeleted: true,
       }),
     );
+    expect(f.storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: f.asset.object_key },
+    ]);
     expect(f.service.updatePhotoAssets).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -131,6 +169,32 @@ describe("photo upload cleanup", () => {
     expect(output).not.toContain("provider-secret");
     expect(output).not.toMatch(/https?:|credential|bytes=/i);
   });
+
+  it("aborts only persisted s3 multipart sessions for deleted assets", async () => {
+    const f = fixture();
+    f.service.listPhotoUploadSessions.mockImplementation(async (filters) =>
+      filters.status === "active"
+        ? []
+        : [
+            { storage_provider: "s3", upload_strategy: "multipart", provider_upload_id: "legacy" },
+            { storage_provider: "vercel-blob", upload_strategy: "multipart", provider_upload_id: "wrong-provider" },
+            { storage_provider: "s3", upload_strategy: "single-put", provider_upload_id: "wrong-strategy" },
+          ],
+    );
+    f.service.listPhotoAssets.mockResolvedValue([
+      { ...f.asset, status: "deleted" },
+    ]);
+
+    await runPhotoUploadCleanup(f);
+
+    expect(f.storage.abortLegacyMultipart).toHaveBeenCalledTimes(1);
+    expect(f.storage.abortLegacyMultipart).toHaveBeenCalledWith({
+      provider: "s3",
+      key: f.asset.object_key,
+      uploadId: "legacy",
+    });
+  });
+
   it("does not add terminal-job assets to explicit cleanup candidates", async () => {
     const f = fixture();
     f.service.listPhotoUploadSessions.mockResolvedValue([]);
@@ -155,9 +219,9 @@ describe("photo upload cleanup", () => {
           : [],
     );
     await runPhotoUploadCleanup({ ...f, batchSize: 2 });
-    expect(f.storage.deletePrivateObjects).toHaveBeenCalledTimes(2);
-    expect(f.storage.deletePrivateObjects).not.toHaveBeenCalledWith([
-      terminal.object_key,
+    expect(f.storage.delete).toHaveBeenCalledTimes(2);
+    expect(f.storage.delete).not.toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: terminal.object_key },
     ]);
   });
 });

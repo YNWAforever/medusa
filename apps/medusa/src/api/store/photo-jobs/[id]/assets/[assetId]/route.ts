@@ -3,6 +3,7 @@ import { PHOTO_PRODUCTION_MODULE } from "../../../../../../modules/photo-product
 import { verifyGuestSecret } from "../../../../../../modules/photo-production/ownership";
 import { assertPhotoAssetTransition } from "../../../../../../modules/photo-production/state-machine";
 import { PHOTO_STORAGE_MODULE } from "../../../../../../modules/photo-storage";
+import { photoObjectRef } from "../../../../../../modules/photo-storage/types";
 function notFound(): never {
   throw new MedusaError(MedusaError.Types.NOT_FOUND, "photo_job_not_found");
 }
@@ -88,12 +89,20 @@ export async function DELETE(req: any, res: any): Promise<void> {
   const sessions = await service.listPhotoUploadSessions({
     asset_id: asset.id,
   });
-  for (const session of sessions)
-    if (session.provider_upload_id)
-      await storage.abortMultipartUpload({
-        key: asset.object_key,
+  for (const session of sessions) {
+    const ref = photoObjectRef(session, asset.object_key);
+    if (
+      session.upload_strategy === "multipart" &&
+      ref.provider === "s3" &&
+      session.provider_upload_id
+    ) {
+      await storage.abortLegacyMultipart({
+        provider: ref.provider,
+        key: ref.key,
         uploadId: session.provider_upload_id,
       });
-  await storage.deletePrivateObjects([asset.object_key]);
+    }
+  }
+  await storage.delete([photoObjectRef(asset, asset.object_key)]);
   res.json({ asset: { id: asset.id, status: "deleted" } });
 }

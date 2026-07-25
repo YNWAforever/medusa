@@ -6,12 +6,13 @@ import {
   assertPhotoAssetTransition,
   type PhotoAssetStatus,
 } from "../modules/photo-production/state-machine";
-import type { PhotoObjectStorage } from "../modules/photo-storage/types";
+import { photoObjectRef, type PhotoObjectStorage } from "../modules/photo-storage/types";
 
 type Asset = Record<string, any> & {
   id: string;
   job_id: string;
   object_key: string;
+  storage_provider?: string | null;
   display_name: string;
   reported_mime_type: string | null;
   status: PhotoAssetStatus;
@@ -168,11 +169,10 @@ export async function processPhotoAsset(
           last_activity_at: new Date(),
         });
 
-        const head = await dependencies.storage.headPrivateObject(
-          asset.object_key,
-        );
-        const signature = await dependencies.storage.readPrivateObjectPrefix(
-          asset.object_key,
+        const originalRef = photoObjectRef(asset, asset.object_key);
+        const head = await dependencies.storage.inspect(originalRef);
+        const signature = await dependencies.storage.readPrefix(
+          originalRef,
           64,
         );
         const detected = validateImageInput({
@@ -182,7 +182,7 @@ export async function processPhotoAsset(
           signature,
         });
         const hashed = hashingStream(
-          await dependencies.storage.readPrivateObject(asset.object_key),
+          await dependencies.storage.read(originalRef),
         );
         const image = await processImage({
           filename: asset.display_name,
@@ -207,7 +207,7 @@ export async function processPhotoAsset(
             sha256,
           });
           if (duplicates.some((candidate: Asset) => candidate.id !== assetId)) {
-            await dependencies.storage.deletePrivateObjects([asset.object_key]);
+            await dependencies.storage.delete([originalRef]);
             return await transitionCurrent(
               dependencies.service,
               latest,
@@ -222,15 +222,15 @@ export async function processPhotoAsset(
           }
 
           writtenPreview = previewKey(asset);
-          await dependencies.storage.writePrivatePreview({
-            key: writtenPreview,
+          await dependencies.storage.writePreview({
+            ref: photoObjectRef(asset, writtenPreview),
             bytes: image.preview,
             contentType: "image/jpeg",
           });
           const beforeReady = await latestAsset(dependencies.service, asset.id);
           if (!beforeReady || beforeReady.status !== "processing") {
             await dependencies.storage
-              .deletePrivateObjects([writtenPreview])
+              .delete([photoObjectRef(asset, writtenPreview)])
               .catch(() => undefined);
             return beforeReady;
           }
@@ -270,7 +270,7 @@ export async function processPhotoAsset(
       } catch (error) {
         if (writtenPreview) {
           await dependencies.storage
-            .deletePrivateObjects([writtenPreview])
+            .delete([photoObjectRef(asset, writtenPreview)])
             .catch(() => undefined);
           writtenPreview = null;
         }

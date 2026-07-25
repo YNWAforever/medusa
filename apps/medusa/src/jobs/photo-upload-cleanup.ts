@@ -2,6 +2,7 @@ import type { MedusaContainer } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import { PHOTO_PRODUCTION_MODULE } from "../modules/photo-production";
 import { PHOTO_STORAGE_MODULE } from "../modules/photo-storage";
+import { photoObjectRef } from "../modules/photo-storage/types";
 
 export const PHOTO_UPLOAD_CLEANUP_BATCH = 100;
 type Dependencies = {
@@ -44,11 +45,20 @@ export async function runPhotoUploadCleanup({
     let asset: any;
     try {
       asset = await service.retrievePhotoAsset(session.asset_id);
-      if (session.provider_upload_id)
-        await storage.abortMultipartUpload({
-          key: asset.object_key,
+      const ref = photoObjectRef(session, asset.object_key);
+      if (
+        session.upload_strategy === "multipart" &&
+        ref.provider === "s3" &&
+        session.provider_upload_id
+      ) {
+        await storage.abortLegacyMultipart({
+          provider: ref.provider,
+          key: ref.key,
           uploadId: session.provider_upload_id,
         });
+      } else if (session.upload_strategy === "single-put") {
+        await storage.delete([ref]);
+      }
       const updated = first(
         await service.updatePhotoUploadSessions({
           selector: { id: session.id, status: "active" },
@@ -97,13 +107,21 @@ export async function runPhotoUploadCleanup({
       const assetSessions = await service.listPhotoUploadSessions({
         asset_id: asset.id,
       });
-      for (const session of assetSessions)
-        if (session.provider_upload_id)
-          await storage.abortMultipartUpload({
-            key: asset.object_key,
+      for (const session of assetSessions) {
+        const ref = photoObjectRef(session, asset.object_key);
+        if (
+          session.upload_strategy === "multipart" &&
+          ref.provider === "s3" &&
+          session.provider_upload_id
+        ) {
+          await storage.abortLegacyMultipart({
+            provider: ref.provider,
+            key: ref.key,
             uploadId: session.provider_upload_id,
           });
-      await storage.deletePrivateObjects([asset.object_key]);
+        }
+      }
+      await storage.delete([photoObjectRef(asset, asset.object_key)]);
       const updated = first(
         await service.updatePhotoAssets({
           selector: { id: asset.id },

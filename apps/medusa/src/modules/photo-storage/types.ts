@@ -163,3 +163,14 @@ export class PhotoStorageError extends Error {
     this.code = code
   }
 }
+
+export function photoObjectRef(
+  asset: { storage_provider?: string | null },
+  key: string,
+): PhotoObjectRef {
+  const provider = asset.storage_provider ?? "s3"
+  if (provider !== "s3" && provider !== "vercel-blob") {
+    throw new PhotoStorageError("photo_storage_provider_unavailable")
+  }
+  return { provider, key }
+}

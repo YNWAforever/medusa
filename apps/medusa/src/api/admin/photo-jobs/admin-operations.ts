@@ -1,3 +1,5 @@
+import { photoObjectRef } from "../../../modules/photo-storage/types"
+
 const ACCESS_REASONS = new Set(["quality_check", "production", "support"])
 
 export const PRODUCTION_STATUSES = [
@@ -84,7 +86,7 @@ export async function requestAuditedAssetAccess(
     reason: input.reason,
     request_id: input.requestId ?? null,
   })
-  return dependencies.storage.signPrivateOriginalRead(asset.object_key, 300)
+  return dependencies.storage.signRead(photoObjectRef(asset, asset.object_key), 300)
 }
 
 export async function validateBranchCapabilityUpdate(
