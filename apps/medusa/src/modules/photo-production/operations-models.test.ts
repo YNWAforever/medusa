@@ -18,6 +18,32 @@ describe("photo operations persistence contract", () => {
     expect(asset).toContain("media_deleted_at")
   })
 
+  it("persists provider-neutral upload metadata", () => {
+    const photoAsset = readFileSync(new URL("./models/photo-asset.ts", import.meta.url), "utf8")
+    const photoUploadSession = readFileSync(
+      new URL("./models/photo-upload-session.ts", import.meta.url),
+      "utf8",
+    )
+
+    const photoAssetFields = [...photoAsset.matchAll(/^(\s*)([a-z_]+): model\./gm)].map(
+      ([, , field]) => field,
+    )
+    const uploadSessionFields = [...photoUploadSession.matchAll(/^(\s*)([a-z_]+): model\./gm)].map(
+      ([, , field]) => field,
+    )
+
+    expect(photoAssetFields).toEqual(
+      expect.arrayContaining(["storage_provider", "provider_etag"]),
+    )
+    expect(uploadSessionFields).toEqual(
+      expect.arrayContaining([
+        "storage_provider",
+        "upload_strategy",
+        "completion_metadata",
+      ]),
+    )
+  })
+
   it("allows ordered fulfillment and final expiry only", () => {
     expect(() => assertPhotoJobTransition("ordered", "fulfilled")).not.toThrow()
     expect(() => assertPhotoJobTransition("fulfilled", "expired")).not.toThrow()

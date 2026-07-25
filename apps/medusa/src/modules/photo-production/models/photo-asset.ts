@@ -6,6 +6,8 @@ const PhotoAsset = model.define("photo_asset", {
   job: model.belongsTo(() => PhotoJob),
   display_name: model.text(),
   object_key: model.text().unique().nullable(),
+  storage_provider: model.enum(["s3", "vercel-blob"]).default("s3").index(),
+  provider_etag: model.text().nullable(),
   reported_mime_type: model.text().nullable(),
   detected_mime_type: model.text().nullable(),
   expected_bytes: model.number(),
