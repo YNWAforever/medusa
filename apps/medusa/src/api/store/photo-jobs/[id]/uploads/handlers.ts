@@ -233,6 +233,17 @@ function uploadDto(
     expiresAt: grant.expiresAt,
   };
 }
+function completedUploadDto(asset: UploadAsset, session: UploadSession) {
+  if (session.status !== "completed" || !isCompletedAsset(asset))
+    conflict("photo_upload_not_active");
+  return {
+    assetId: asset.id,
+    sessionId: session.id,
+    strategy: sessionStrategy(session),
+    status: "completed" as const,
+    expiresAt: new Date(session.expires_at).toISOString(),
+  };
+}
 function assertWritableSession(
   asset: UploadAsset,
   session: UploadSession,
@@ -246,6 +257,8 @@ async function issueExistingUploadDto(
   asset: UploadAsset,
   session: UploadSession,
 ) {
+  if (session.status === "completed")
+    return completedUploadDto(asset, session);
   assertWritableSession(asset, session);
   if (sessionStrategy(session) === "multipart") return uploadDto(asset, session);
   const ref = recordedRef(asset, session);

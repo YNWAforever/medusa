@@ -100,6 +100,10 @@ async function signature(file: File): Promise<string> {
   return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
 }
 type CreateUploadInput = Parameters<PhotoClient["createUpload"]>[1];
+type ActiveUploadSession = Extract<
+  PhotoUploadSessionView,
+  { status: "active" }
+>;
 const MAX_REPLACEMENT_GENERATIONS = 5;
 
 function isUploadExpiredError(error: unknown): error is PhotoClientError {
@@ -348,7 +352,7 @@ export class MultipartUploader {
   private async uploadSession(
     jobId: string,
     file: File,
-    session: PhotoUploadSessionView,
+    session: ActiveUploadSession,
     onProgress: (progress: UploadProgress) => void,
     signal?: AbortSignal,
   ): Promise<UploadResult> {
@@ -381,7 +385,7 @@ export class MultipartUploader {
   private async uploadMultipartSession(
     jobId: string,
     file: File,
-    session: Extract<PhotoUploadSessionView, { strategy: "multipart" }>,
+    session: Extract<ActiveUploadSession, { strategy: "multipart" }>,
     onProgress: (progress: UploadProgress) => void,
     signal?: AbortSignal,
   ): Promise<UploadResult> {

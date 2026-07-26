@@ -76,27 +76,40 @@ describe("MultipartUploader", () => {
     expect(api.createUpload).toHaveBeenCalledTimes(1);
     expect(put).toHaveBeenCalledTimes(3);
   });
-  it("reconciles a completed idempotent session without uploading again", async () => {
-    const api = client({
-      createUpload: vi.fn(async () => ({
-        assetId: "asset_1",
-        sessionId: "session_1",
-        partSize: 6,
-        status: "completed",
-        expiresAt: new Date().toISOString(),
-      })),
-    });
-    const put = vi.fn();
+  it("reconciles a lost completion response without any further upload mutation", async () => {
+    const createUpload = vi.fn(async (
+      _jobId: string,
+      _input: { sourceIdempotencyKey: string },
+    ) => ({
+      assetId: "asset_1",
+      sessionId: "session_1",
+      strategy: "single-put",
+      status: "completed",
+      expiresAt: new Date().toISOString(),
+    }));
+    const api = client({ createUpload });
+    const multipartPut = vi.fn();
+    const directPut = vi.fn();
+
     await expect(
-      new MultipartUploader(api, put as any).upload(
+      new MultipartUploader(api, multipartPut as any, directPut).upload(
         "job_1",
         file,
         "stable-key",
       ),
     ).resolves.toEqual({ assetId: "asset_1", sessionId: "session_1" });
+
+    expect(createUpload).toHaveBeenCalledTimes(1);
+    expect(createUpload.mock.calls[0]?.[1]).toMatchObject({
+      sourceIdempotencyKey: "stable-key",
+    });
     expect(api.signPart).not.toHaveBeenCalled();
-    expect(put).not.toHaveBeenCalled();
+    expect(multipartPut).not.toHaveBeenCalled();
+    expect(directPut).not.toHaveBeenCalled();
+    expect(api.complete).not.toHaveBeenCalled();
+    expect(api.abort).not.toHaveBeenCalled();
   });
+
   it("aborts and replaces an expired session", async () => {
     const api = client({
       signPart: vi

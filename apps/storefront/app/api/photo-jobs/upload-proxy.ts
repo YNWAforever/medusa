@@ -36,12 +36,21 @@ function safeRequiredHeaders(value: unknown): Record<string, string> {
 
 function projectUpload(value: unknown) {
   const upload = record(value)
+  const status = nonblank(upload.status)
   const common = {
     assetId: nonblank(upload.assetId),
     sessionId: nonblank(upload.sessionId),
-    status: nonblank(upload.status),
+    status,
     expiresAt: nonblank(upload.expiresAt),
   }
+
+  if (status === "completed") {
+    if (upload.strategy !== "single-put" && upload.strategy !== "multipart")
+      unavailable()
+    return { ...common, strategy: upload.strategy }
+  }
+
+  if (status !== "active") unavailable()
   const strategy = upload.strategy ?? "multipart"
 
   if (strategy === "single-put") {

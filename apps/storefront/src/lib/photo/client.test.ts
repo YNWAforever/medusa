@@ -122,6 +122,34 @@ describe("photo upload BFF projection", () => {
     })
   })
 
+  it("projects a completed session without forwarding upload capability or extras", () => {
+    expect(projectUploadProxyPayload({
+      upload: {
+        assetId: "asset_1",
+        sessionId: "session_1",
+        strategy: "single-put",
+        status: "completed",
+        expiresAt: "2026-07-26T10:00:00.000Z",
+        uploadUrl: "https://blob.invalid/must-not-reach-browser",
+        requiredHeaders: {
+          "content-type": "image/jpeg",
+          authorization: "Bearer provider-secret",
+        },
+        partSize: 12,
+        BLOB_READ_WRITE_TOKEN: "provider-secret",
+        providerInternal: "must-not-leak",
+      },
+    })).toEqual({
+      upload: {
+        assetId: "asset_1",
+        sessionId: "session_1",
+        strategy: "single-put",
+        status: "completed",
+        expiresAt: "2026-07-26T10:00:00.000Z",
+      },
+    })
+  })
+
   it.each([
     { strategy: "single-put", partSize: 6, uploadUrl: "https://blob.invalid/signed", requiredHeaders: {} },
     { strategy: "single-put", requiredHeaders: {} },

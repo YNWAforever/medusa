@@ -44,22 +44,30 @@ export interface PhotoJobView {
 type PhotoUploadSessionBase = {
   assetId: string
   sessionId: string
-  status: string
   expiresAt: string
 }
 
 export type PhotoUploadSessionView =
   | PhotoUploadSessionBase & {
       strategy: "single-put"
+      status: "active"
       uploadUrl: string
       requiredHeaders: Record<string, string>
       partSize?: never
     }
   | PhotoUploadSessionBase & {
       strategy: "multipart"
+      status: "active"
       partSize: number
       uploadUrl?: never
       requiredHeaders?: never
+    }
+  | PhotoUploadSessionBase & {
+      strategy: "single-put" | "multipart"
+      status: "completed"
+      uploadUrl?: never
+      requiredHeaders?: never
+      partSize?: never
     }
 
 export interface SignedUploadPart { url: string; requiredHeaders: Record<string, string> }

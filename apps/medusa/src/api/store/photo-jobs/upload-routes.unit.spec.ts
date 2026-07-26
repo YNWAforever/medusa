@@ -230,13 +230,34 @@ describe("hardened multipart upload lifecycle", () => {
     );
   });
 
-  it.each([
-    {
-      label: "completed session",
+  it("reconciles a completed idempotent single-PUT session without issuing a grant", async () => {
+    const response = res();
+    const completed = {
       asset: { ...directAsset, status: "uploaded" },
       session: { ...directSession, status: "completed" },
-      error: "photo_upload_not_active",
-    },
+    };
+    const operations = ops({
+      findSessionByIdempotencyKey: vi.fn(async () => completed),
+    });
+
+    await handleCreateUpload(req(createBody), response, operations);
+
+    expect(response.json).toHaveBeenCalledWith({
+      upload: {
+        assetId: directAsset.id,
+        sessionId: directSession.id,
+        strategy: "single-put",
+        status: "completed",
+        expiresAt: new Date(directSession.expires_at).toISOString(),
+      },
+    });
+    expect(operations.storage.createDirectUpload).not.toHaveBeenCalled();
+    expect(operations.storage.inspect).not.toHaveBeenCalled();
+    expect(operations.storage.readPrefix).not.toHaveBeenCalled();
+    expect(operations.storage.delete).not.toHaveBeenCalled();
+    expect(operations.createAssetAndSession).not.toHaveBeenCalled();
+  });
+  it.each([
     {
       label: "aborted session",
       asset: { ...directAsset, status: "failed" },
@@ -319,7 +340,7 @@ describe("hardened multipart upload lifecycle", () => {
     expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(2);
   });
 
-  it("cleans a distinct race grant without re-signing a terminal winner", async () => {
+  it("cleans a distinct race grant and reconciles a terminal winner", async () => {
     const winner = {
       asset: { ...directAsset, status: "uploaded" },
       session: { ...directSession, status: "completed" },
@@ -328,10 +349,9 @@ describe("hardened multipart upload lifecycle", () => {
     const operations = ops({
       createAssetAndSession: vi.fn(async () => winner),
     });
+    const response = res();
 
-    await expect(
-      handleCreateUpload(req(createBody), res(), operations),
-    ).rejects.toThrow("photo_upload_not_active");
+    await handleCreateUpload(req(createBody), response, operations);
 
     const issuedKey = vi.mocked(operations.storage.createDirectUpload)
       .mock.calls[0][0].key;
@@ -339,7 +359,17 @@ describe("hardened multipart upload lifecycle", () => {
       { provider: "vercel-blob", key: issuedKey },
     ]);
     expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(1);
+    expect(response.json).toHaveBeenCalledWith({
+      upload: {
+        assetId: directAsset.id,
+        sessionId: directSession.id,
+        strategy: "single-put",
+        status: "completed",
+        expiresAt: new Date(directSession.expires_at).toISOString(),
+      },
+    });
   });
+
   it("reconciles an already completed provider object without completing it twice", async () => {
     const operations = ops();
     await handleComplete(
