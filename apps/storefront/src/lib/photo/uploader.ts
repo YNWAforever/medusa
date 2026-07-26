@@ -119,6 +119,7 @@ function isReplacementStateError(error: unknown): error is PhotoClientError {
 }
 
 function isSessionExpired(session: PhotoUploadSessionView): boolean {
+  if (session.status === "completed") return false;
   const expiresAt = Date.parse(session.expiresAt);
   return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
@@ -340,6 +341,7 @@ export class MultipartUploader {
         if (isReplacementStateError(error)) continue;
         throw error;
       }
+      if (session.status === "completed") return { session, generation };
       if (!isSessionExpired(session)) return { session, generation };
       await this.client.abort(jobId, session.sessionId).catch(() => undefined);
     }

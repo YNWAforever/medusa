@@ -389,6 +389,44 @@ describe("single-PUT uploader", () => {
     );
   });
 
+  it("reconciles an elapsed completed replacement without aborting or advancing", async () => {
+    const createUpload = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new PhotoClientError("photo_upload_not_active", 409),
+      )
+      .mockResolvedValueOnce({
+        assetId: "asset_completed",
+        sessionId: "session_completed",
+        strategy: "single-put",
+        status: "completed",
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+    const api = client({ createUpload });
+    const directPut = vi.fn();
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "source",
+      ),
+    ).resolves.toEqual({
+      assetId: "asset_completed",
+      sessionId: "session_completed",
+    });
+
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) => {
+        const input = call[1] as { sourceIdempotencyKey: string };
+        return input.sourceIdempotencyKey;
+      }),
+    ).toEqual(["source", "source:replacement:1"]);
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(directPut).not.toHaveBeenCalled();
+    expect(api.complete).not.toHaveBeenCalled();
+  });
+
   it("advances to the next deterministic generation when a replacement expired", async () => {
     const createUpload = vi
       .fn()
