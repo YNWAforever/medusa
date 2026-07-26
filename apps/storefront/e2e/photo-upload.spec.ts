@@ -20,15 +20,22 @@ type PutRequest = {
   url: string;
 };
 
-async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
+type MockUploadOptions = {
+  expireFirst?: boolean;
+  providerFailureStatus?: 401 | 403;
+};
+
+async function mockUpload(page: Page, options: MockUploadOptions = {}) {
   const uploadRequests: UploadRequest[] = [];
   const sessions: Array<{
     assetId: string;
+    expiresAt: string;
     sessionId: string;
     uploadUrl: string;
   }> = [];
   const puts: PutRequest[] = [];
   const completions: Record<string, unknown>[] = [];
+  const aborts: string[] = [];
 
   await page.route("**/api/photo-jobs/job_1", async (route) =>
     route.fulfill({
@@ -48,10 +55,20 @@ async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
     uploadRequests.push(request);
     const attempt = uploadRequests.length;
     const expired = options.expireFirst === true && attempt === 1;
+    const providerFailureStatus = attempt === 1
+      ? options.providerFailureStatus
+      : undefined;
     const session = {
       assetId: `asset_${attempt}`,
+      expiresAt: new Date(
+        Date.now() + (expired ? -1000 : 60_000),
+      ).toISOString(),
       sessionId: `session_${attempt}`,
-      uploadUrl: expired ? "/signed/photo-put-expired" : "/signed/photo-put",
+      uploadUrl: expired
+        ? "/signed/photo-put-expired"
+        : providerFailureStatus
+        ? `/signed/photo-put-auth-${providerFailureStatus}`
+        : "/signed/photo-put",
     };
     sessions.push(session);
     return route.fulfill({
@@ -61,7 +78,6 @@ async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
           strategy: "single-put",
           requiredHeaders: { "content-type": "image/jpeg" },
           status: "active",
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
         },
       },
     });
@@ -69,6 +85,11 @@ async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
   await page.route("**/signed/photo-put*", async (route) => {
     const url = route.request().url();
     const expired = url.includes("photo-put-expired");
+    const providerFailureStatus = url.endsWith("photo-put-auth-401")
+      ? 401
+      : url.endsWith("photo-put-auth-403")
+      ? 403
+      : undefined;
     puts.push({
       body: route.request().postDataBuffer() ?? Buffer.alloc(0),
       contentType: await route.request().headerValue("content-type"),
@@ -76,7 +97,9 @@ async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
       url,
     });
     return route.fulfill(
-      expired
+      providerFailureStatus
+        ? { status: providerFailureStatus }
+        : expired
         ? { status: 403 }
         : { status: 200, headers: { etag: '"etag-1"' } },
     );
@@ -104,13 +127,18 @@ async function mockUpload(page: Page, options: { expireFirst?: boolean } = {}) {
   );
   await page.route(
     "**/api/photo-jobs/job_1/uploads/session_*/abort",
-    (route) => route.fulfill({ json: { upload: { status: "aborted" } } }),
+    (route) => {
+      const sessionId = new URL(route.request().url()).pathname
+        .split("/").at(-2);
+      if (sessionId) aborts.push(sessionId);
+      return route.fulfill({ json: { upload: { status: "aborted" } } });
+    },
   );
   await page.route("**/api/photo-jobs/job_1/assets/asset_*", async (route) =>
     route.fulfill({ json: { asset: { id: "asset_1", status: "deleted" } } }),
   );
 
-  return { completions, puts, sessions, uploadRequests };
+  return { aborts, completions, puts, sessions, uploadRequests };
 }
 
 async function browserJson(
@@ -188,7 +216,8 @@ test("replaces an expired direct grant and reaches 100 percent", async ({
   await expect(page.getByRole("progressbar", {
     name: "expired.jpg: Uploaded",
   })).toHaveJSProperty("value", 100);
-  expect(state.puts.map((put) => put.expired)).toEqual([true, false]);
+  expect(state.puts.map((put) => put.expired)).toEqual([false]);
+  expect(state.aborts).toEqual(["session_1"]);
   expect(state.sessions).toHaveLength(2);
   expect(state.sessions[0].sessionId).not.toBe(state.sessions[1].sessionId);
   expect(state.sessions[0].uploadUrl).not.toBe(state.sessions[1].uploadUrl);
@@ -197,6 +226,29 @@ test("replaces an expired direct grant and reaches 100 percent", async ({
   );
   expect(state.completions).toEqual([{ etag: '"etag-1"' }]);
 });
+
+for (const status of [401, 403] as const) {
+  test(`does not replace an active direct grant after provider status ${status}`, async ({
+    page,
+  }) => {
+    const state = await mockUpload(page, { providerFailureStatus: status });
+    await page.goto("/photo-upload-e2e?locale=en");
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: `unauthorized-${status}.jpg`,
+      mimeType: "image/jpeg",
+      buffer: jpeg,
+    });
+
+    await expect(page.getByRole("progressbar", {
+      name: `unauthorized-${status}.jpg: Upload failed`,
+    })).toBeVisible();
+    expect(state.uploadRequests).toHaveLength(1);
+    expect(state.sessions).toHaveLength(1);
+    expect(state.puts).toHaveLength(1);
+    expect(state.completions).toHaveLength(0);
+    expect(state.aborts).toHaveLength(0);
+  });
+}
 
 test("uploads and completes a signed direct PUT from the browser origin", async ({
   page,

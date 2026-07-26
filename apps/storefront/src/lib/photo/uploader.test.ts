@@ -308,6 +308,39 @@ describe("single-PUT uploader", () => {
     );
   });
 
+  it.each([401, 403])(
+    "does not replace an active direct grant after provider status %s",
+    async (status) => {
+      const api = client({
+        createUpload: vi.fn(async () => ({
+          assetId: "asset_1",
+          sessionId: "session_1",
+          strategy: "single-put",
+          uploadUrl: "https://blob.invalid/signed",
+          requiredHeaders: { "content-type": "image/jpeg" },
+          status: "active",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })),
+      });
+      const directPut = vi.fn(async () => {
+        throw new PhotoClientError("photo_upload_failed", status);
+      });
+
+      await expect(
+        new MultipartUploader(api, vi.fn() as any, directPut).upload(
+          "job_1",
+          file,
+          "source",
+        ),
+      ).rejects.toMatchObject({ code: "photo_upload_failed", status });
+
+      expect(api.createUpload).toHaveBeenCalledTimes(1);
+      expect(directPut).toHaveBeenCalledTimes(1);
+      expect(api.abort).not.toHaveBeenCalled();
+      expect(api.complete).not.toHaveBeenCalled();
+    },
+  );
+
   it("recovers when stable create finds an expired idempotent session", async () => {
     const createUpload = vi
       .fn()
@@ -687,7 +720,7 @@ describe("putFileWithProgress", () => {
     ]);
   });
   it.each([401, 403])(
-    "maps a signed direct-PUT %s response to an expired grant",
+    "keeps a signed direct-PUT %s response as a stable upload failure",
     async (status) => {
       vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
       const result = putFileWithProgress(
@@ -701,7 +734,7 @@ describe("putFileWithProgress", () => {
       xhr.onload?.();
 
       await expect(result).rejects.toMatchObject({
-        code: "photo_upload_expired",
+        code: "photo_upload_failed",
         status,
       });
     },
