@@ -37,14 +37,36 @@ export async function runPhotoUploadCleanup({
   batchSize = PHOTO_UPLOAD_CLEANUP_BATCH,
 }: Dependencies) {
   const summary = { expiredSessions: 0, deletedAssets: 0, failures: 0 };
-  const sessions = await service.listPhotoUploadSessions(
-    { status: "active", expires_at: { $lt: now } },
+  const retryableSessions = await service.listPhotoUploadSessions(
+    { status: "expired", aborted_at: null },
     { take: batchSize, order: { expires_at: "ASC" } },
+  );
+  const remaining = Math.max(0, batchSize - retryableSessions.length);
+  const activeSessions = remaining
+    ? await service.listPhotoUploadSessions(
+        { status: "active", expires_at: { $lt: now } },
+        { take: remaining, order: { expires_at: "ASC" } },
+      )
+    : [];
+  const sessions = [...retryableSessions, ...activeSessions].slice(
+    0,
+    batchSize,
   );
   for (const session of sessions.slice(0, batchSize)) {
     let asset: any;
     try {
       asset = await service.retrievePhotoAsset(session.asset_id);
+      if (session.status === "active") {
+        const claimed = first(
+          await service.updatePhotoUploadSessions({
+            selector: { id: session.id, status: "active" },
+            data: { status: "expired" },
+          }),
+        );
+        if (!claimed) continue;
+      } else if (session.status !== "expired" || session.aborted_at) {
+        continue;
+      }
       const ref = photoObjectRef(session, asset.object_key);
       if (
         session.upload_strategy === "multipart" &&
@@ -59,13 +81,6 @@ export async function runPhotoUploadCleanup({
       } else if (session.upload_strategy === "single-put") {
         await storage.delete([ref]);
       }
-      const updated = first(
-        await service.updatePhotoUploadSessions({
-          selector: { id: session.id, status: "active" },
-          data: { status: "expired", aborted_at: now },
-        }),
-      );
-      if (!updated) throw new Error("conditional_update_empty");
       if (asset.status === "uploading")
         await service.updatePhotoAssets({
           selector: { id: asset.id, status: "uploading" },
@@ -75,6 +90,17 @@ export async function runPhotoUploadCleanup({
             failed_at: now,
           },
         });
+      const finalized = first(
+        await service.updatePhotoUploadSessions({
+          selector: {
+            id: session.id,
+            status: "expired",
+            aborted_at: null,
+          },
+          data: { aborted_at: now },
+        }),
+      );
+      if (!finalized) throw new Error("conditional_update_empty");
       summary.expiredSessions += 1;
       event(logger, "info", "photo_cleanup_session_expired", {
         session_id: session.id,
@@ -82,12 +108,6 @@ export async function runPhotoUploadCleanup({
         object_key: asset.object_key,
       });
     } catch {
-      await service
-        .updatePhotoUploadSessions({
-          selector: { id: session.id, status: "active" },
-          data: { expires_at: new Date(now.getTime() + 15 * 60 * 1000) },
-        })
-        .catch(() => undefined);
       summary.failures += 1;
       event(logger, "warn", "photo_cleanup_provider_retry", {
         session_id: session.id,

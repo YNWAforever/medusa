@@ -54,7 +54,7 @@ function useLegacyMultipart(f: ReturnType<typeof fixture>) {
 }
 
 describe("photo upload cleanup", () => {
-  it("expires s3 multipart sessions only after provider abort succeeds", async () => {
+  it("claims s3 multipart sessions before provider abort", async () => {
     const f = fixture();
     useLegacyMultipart(f);
 
@@ -73,9 +73,14 @@ describe("photo upload cleanup", () => {
         data: expect.objectContaining({ status: "expired" }),
       }),
     );
+    expect(
+      f.service.updatePhotoUploadSessions.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      f.storage.abortLegacyMultipart.mock.invocationCallOrder[0],
+    );
   });
 
-  it("rotates provider failures behind later expired sessions", async () => {
+  it("keeps a provider failure in cleanup-owned retry state", async () => {
     const f = fixture();
     useLegacyMultipart(f);
     f.storage.abortLegacyMultipart.mockRejectedValue(
@@ -89,6 +94,11 @@ describe("photo upload cleanup", () => {
     expect(f.service.updatePhotoUploadSessions).toHaveBeenCalledWith(
       expect.objectContaining({
         selector: { id: "session_1", status: "active" },
+        data: { status: "expired" },
+      }),
+    );
+    expect(f.service.updatePhotoUploadSessions).not.toHaveBeenCalledWith(
+      expect.objectContaining({
         data: { expires_at: expect.any(Date) },
       }),
     );
@@ -105,6 +115,101 @@ describe("photo upload cleanup", () => {
       { provider: "vercel-blob", key: f.asset.object_key },
     ]);
     expect(f.storage.abortLegacyMultipart).not.toHaveBeenCalled();
+  });
+
+  it("does not delete when completion wins before the stale-session claim", async () => {
+    const f = fixture();
+    let sessionStatus = "active";
+    f.service.retrievePhotoAsset.mockImplementation(async () => {
+      sessionStatus = "completed";
+      return f.asset;
+    });
+    f.service.updatePhotoUploadSessions.mockImplementation(async (input) => {
+      if (
+        input.selector.status === "active" &&
+        sessionStatus === "active"
+      ) {
+        sessionStatus = input.data.status;
+        return [{ ...f.session, ...input.data }];
+      }
+      return [];
+    });
+
+    await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
+      expiredSessions: 0,
+      failures: 0,
+    });
+
+    expect(sessionStatus).toBe("completed");
+    expect(f.storage.delete).not.toHaveBeenCalled();
+    expect(f.storage.abortLegacyMultipart).not.toHaveBeenCalled();
+  });
+
+  it("blocks completion after cleanup wins and retries provider deletion", async () => {
+    const f = fixture();
+    let sessionStatus = "active";
+    let abortedAt: Date | null = null;
+    let completionCommitted = false;
+    let providerAttempts = 0;
+    f.service.listPhotoUploadSessions.mockImplementation(async (filters) => {
+      if (
+        filters.status === "expired" &&
+        sessionStatus === "expired" &&
+        abortedAt === null
+      ) {
+        return [{ ...f.session, status: sessionStatus, aborted_at: null }];
+      }
+      if (filters.status === "active" && sessionStatus === "active") {
+        return [{ ...f.session, status: sessionStatus }];
+      }
+      return [];
+    });
+    f.service.updatePhotoUploadSessions.mockImplementation(async (input) => {
+      if (
+        input.selector.status === "active" &&
+        sessionStatus === "active"
+      ) {
+        sessionStatus = "expired";
+        return [{ ...f.session, status: sessionStatus, aborted_at: null }];
+      }
+      if (
+        input.selector.status === "expired" &&
+        input.selector.aborted_at === null &&
+        sessionStatus === "expired" &&
+        abortedAt === null
+      ) {
+        abortedAt = input.data.aborted_at;
+        return [{ ...f.session, status: sessionStatus, aborted_at: abortedAt }];
+      }
+      return [];
+    });
+    f.storage.delete.mockImplementation(async () => {
+      providerAttempts += 1;
+      if (sessionStatus === "active") {
+        sessionStatus = "completed";
+        completionCommitted = true;
+      }
+      if (providerAttempts === 1) throw new Error("provider unavailable");
+    });
+
+    await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
+      expiredSessions: 0,
+      failures: 1,
+    });
+
+    expect(sessionStatus).toBe("expired");
+    expect(abortedAt).toBeNull();
+    expect(completionCommitted).toBe(false);
+
+    await expect(runPhotoUploadCleanup(f)).resolves.toMatchObject({
+      expiredSessions: 1,
+      failures: 0,
+    });
+
+    expect(providerAttempts).toBe(2);
+    expect(sessionStatus).toBe("expired");
+    expect(abortedAt).toBeInstanceOf(Date);
+    expect(completionCommitted).toBe(false);
   });
 
   it("defers cancelled-job media to the retention job", async () => {
