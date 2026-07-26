@@ -331,6 +331,159 @@ describe("single-PUT uploader", () => {
     );
   });
 
+  it("replays the same replacement generation after its response was lost", async () => {
+    const createUpload = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new PhotoClientError("photo_upload_not_active", 409),
+      )
+      .mockRejectedValueOnce(new TypeError("replacement response lost"))
+      .mockResolvedValueOnce({
+        assetId: "asset_replacement",
+        sessionId: "session_replacement",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/replacement",
+        requiredHeaders: {},
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    const api = client({ createUpload });
+    const directPut = vi.fn(async () => '"replacement-etag"');
+
+    await new MultipartUploader(api, vi.fn() as any, directPut).upload(
+      "job_1",
+      file,
+      "source",
+    );
+
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) => {
+        const input = call[1] as { sourceIdempotencyKey: string };
+        return input.sourceIdempotencyKey;
+      }),
+    ).toEqual([
+      "source",
+      "source:replacement:1",
+      "source:replacement:1",
+    ]);
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(api.complete).toHaveBeenCalledWith(
+      "job_1",
+      "session_replacement",
+      { strategy: "single-put", etag: '"replacement-etag"' },
+      undefined,
+    );
+  });
+
+  it("advances to the next deterministic generation when a replacement expired", async () => {
+    const createUpload = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new PhotoClientError("photo_upload_not_active", 409),
+      )
+      .mockRejectedValueOnce(new PhotoClientError("photo_upload_expired", 409))
+      .mockResolvedValueOnce({
+        assetId: "asset_replacement_2",
+        sessionId: "session_replacement_2",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/replacement-2",
+        requiredHeaders: {},
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    const api = client({ createUpload });
+    const directPut = vi.fn(async () => '"replacement-2-etag"');
+
+    await new MultipartUploader(api, vi.fn() as any, directPut).upload(
+      "job_1",
+      file,
+      "source",
+    );
+
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) => {
+        const input = call[1] as { sourceIdempotencyKey: string };
+        return input.sourceIdempotencyKey;
+      }),
+    ).toEqual([
+      "source",
+      "source:replacement:1",
+      "source:replacement:2",
+    ]);
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(directPut).toHaveBeenCalledWith(
+      "https://blob.invalid/replacement-2",
+      file,
+      {},
+      expect.any(Function),
+      undefined,
+    );
+  });
+
+  it("does not advance generations after arbitrary transient create failures", async () => {
+    const transient = new PhotoClientError("photo_job_unavailable", 503);
+    const createUpload = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new PhotoClientError("photo_upload_not_active", 409),
+      )
+      .mockRejectedValue(transient);
+    const api = client({ createUpload });
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, vi.fn()).upload(
+        "job_1",
+        file,
+        "source",
+      ),
+    ).rejects.toBe(transient);
+
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) => {
+        const input = call[1] as { sourceIdempotencyKey: string };
+        return input.sourceIdempotencyKey;
+      }),
+    ).toEqual([
+      "source",
+      "source:replacement:1",
+      "source:replacement:1",
+      "source:replacement:1",
+    ]);
+    expect(api.abort).not.toHaveBeenCalled();
+  });
+
+  it("fails stably when every bounded replacement generation is unavailable", async () => {
+    const createUpload = vi
+      .fn()
+      .mockRejectedValue(
+        new PhotoClientError("photo_upload_not_active", 409),
+      );
+    const api = client({ createUpload });
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, vi.fn()).upload(
+        "job_1",
+        file,
+        "source",
+      ),
+    ).rejects.toMatchObject({ code: "photo_upload_failed" });
+
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) => {
+        const input = call[1] as { sourceIdempotencyKey: string };
+        return input.sourceIdempotencyKey;
+      }),
+    ).toEqual([
+      "source",
+      "source:replacement:1",
+      "source:replacement:2",
+      "source:replacement:3",
+      "source:replacement:4",
+      "source:replacement:5",
+    ]);
+    expect(api.abort).not.toHaveBeenCalled();
+  });
   it("does not replace a generic direct PUT failure for an active grant", async () => {
     const api = client({
       createUpload: vi.fn(async () => ({

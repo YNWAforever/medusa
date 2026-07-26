@@ -100,9 +100,18 @@ async function signature(file: File): Promise<string> {
   return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
 }
 type CreateUploadInput = Parameters<PhotoClient["createUpload"]>[1];
+const MAX_REPLACEMENT_GENERATIONS = 5;
 
 function isUploadExpiredError(error: unknown): error is PhotoClientError {
   return error instanceof PhotoClientError && error.code === "photo_upload_expired";
+}
+
+function isReplacementStateError(error: unknown): error is PhotoClientError {
+  return (
+    error instanceof PhotoClientError &&
+    (error.code === "photo_upload_expired" ||
+      error.code === "photo_upload_not_active")
+  );
 }
 
 function isSessionExpired(session: PhotoUploadSessionView): boolean {
@@ -228,85 +237,111 @@ export class MultipartUploader {
       sourceIdempotencyKey,
       signatureBase64: await signature(file),
     };
-    let session: PhotoUploadSessionView;
+    let current: { session: PhotoUploadSessionView; generation: number };
     try {
-      session = await this.client.createUpload(jobId, input, callbacks.signal);
-      callbacks.onSession?.(session);
+      const session = await this.createUpload(jobId, input, callbacks);
+      current = { session, generation: 0 };
     } catch (error) {
-      if (!isUploadExpiredError(error)) throw error;
-      session = await this.replaceUpload(
+      if (!isReplacementStateError(error)) throw error;
+      current = await this.findReplacement(
         jobId,
         input,
         sourceIdempotencyKey,
         callbacks,
+        1,
       );
     }
-    if (session.status === "completed")
-      return { assetId: session.assetId, sessionId: session.sessionId };
 
-    if (isSessionExpired(session)) {
-      session = await this.replaceUpload(
-        jobId,
-        input,
-        sourceIdempotencyKey,
-        callbacks,
-        session,
-      );
+    while (true) {
+      const { session, generation } = current;
       if (session.status === "completed")
         return { assetId: session.assetId, sessionId: session.sessionId };
-    }
 
-    try {
-      return await this.uploadSession(
-        jobId,
-        file,
-        session,
-        callbacks.onProgress ?? (() => {}),
-        callbacks.signal,
-      );
-    } catch (error) {
-      if (!isUploadExpiredError(error) && !isSessionExpired(session))
-        throw error;
-      session = await this.replaceUpload(
-        jobId,
-        input,
-        sourceIdempotencyKey,
-        callbacks,
-        session,
-      );
-      if (session.status === "completed")
-        return { assetId: session.assetId, sessionId: session.sessionId };
-      return this.uploadSession(
-        jobId,
-        file,
-        session,
-        callbacks.onProgress ?? (() => {}),
-        callbacks.signal,
-      );
+      if (isSessionExpired(session)) {
+        current = await this.findReplacement(
+          jobId,
+          input,
+          sourceIdempotencyKey,
+          callbacks,
+          generation + 1,
+          session,
+        );
+        continue;
+      }
+
+      try {
+        return await this.uploadSession(
+          jobId,
+          file,
+          session,
+          callbacks.onProgress ?? (() => {}),
+          callbacks.signal,
+        );
+      } catch (error) {
+        if (!isUploadExpiredError(error) && !isSessionExpired(session))
+          throw error;
+        current = await this.findReplacement(
+          jobId,
+          input,
+          sourceIdempotencyKey,
+          callbacks,
+          generation + 1,
+          session,
+        );
+      }
     }
   }
 
-  private async replaceUpload(
+  private async createUpload(
+    jobId: string,
+    input: CreateUploadInput,
+    callbacks: UploadCallbacks,
+  ): Promise<PhotoUploadSessionView> {
+    const session = await retry(() =>
+      this.client.createUpload(jobId, input, callbacks.signal),
+    );
+    callbacks.onSession?.(session);
+    return session;
+  }
+
+  private async findReplacement(
     jobId: string,
     input: CreateUploadInput,
     sourceIdempotencyKey: string,
     callbacks: UploadCallbacks,
-    expiredSession?: PhotoUploadSessionView,
-  ): Promise<PhotoUploadSessionView> {
-    if (expiredSession)
-      await this.client.abort(jobId, expiredSession.sessionId).catch(() => undefined);
-    const replacement = await this.client.createUpload(
-      jobId,
-      {
-        ...input,
-        sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:1`,
-      },
-      callbacks.signal,
-    );
-    callbacks.onSession?.(replacement);
-    return replacement;
-  }
+    startGeneration: number,
+    staleSession?: PhotoUploadSessionView,
+  ): Promise<{ session: PhotoUploadSessionView; generation: number }> {
+    if (staleSession)
+      await this.client
+        .abort(jobId, staleSession.sessionId)
+        .catch(() => undefined);
 
+    for (
+      let generation = startGeneration;
+      generation <= MAX_REPLACEMENT_GENERATIONS;
+      generation += 1
+    ) {
+      let session: PhotoUploadSessionView;
+      try {
+        session = await this.createUpload(
+          jobId,
+          {
+            ...input,
+            sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:${generation}`,
+          },
+          callbacks,
+        );
+      } catch (error) {
+        if (isReplacementStateError(error)) continue;
+        throw error;
+      }
+      if (!isSessionExpired(session)) return { session, generation };
+      await this.client.abort(jobId, session.sessionId).catch(() => undefined);
+    }
+
+    throw new PhotoClientError("photo_upload_failed", 409);
+  }
   async abort(jobId: string, sessionId: string): Promise<void> {
     await this.client.abort(jobId, sessionId);
   }
