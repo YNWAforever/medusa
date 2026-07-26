@@ -70,7 +70,10 @@ function ops(overrides: Partial<UploadOperations> = {}): UploadOperations {
     completeSession: vi.fn(async () => ({ ...asset, status: "uploaded" })),
     publishUploaded: vi.fn(async () => undefined),
     abortSession: vi.fn(async () => ({ ...asset, status: "failed" })),
-    failSession: vi.fn(async () => ({ ...asset, status: "failed" })),
+    failSession: vi.fn(async () => ({
+      asset: { ...asset, status: "failed" },
+      claimed: true,
+    })),
     storage: {
       defaultProvider: "vercel-blob",
       createDirectUpload: vi.fn(async () => ({
@@ -151,7 +154,7 @@ describe("hardened multipart upload lifecycle", () => {
         /^photo-jobs\/[0-9a-f-]+\/originals\/[0-9a-f-]+$/,
       ),
       contentType: "image/jpeg",
-      maxBytes: 50 * 1024 * 1024,
+      maxBytes: 12,
       expiresIn: 900,
     });
     expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(1);
@@ -227,6 +230,65 @@ describe("hardened multipart upload lifecycle", () => {
     );
   });
 
+  it.each([
+    {
+      label: "completed session",
+      asset: { ...directAsset, status: "uploaded" },
+      session: { ...directSession, status: "completed" },
+      error: "photo_upload_not_active",
+    },
+    {
+      label: "aborted session",
+      asset: { ...directAsset, status: "failed" },
+      session: { ...directSession, status: "aborted" },
+      error: "photo_upload_not_active",
+    },
+    {
+      label: "failed asset",
+      asset: { ...directAsset, status: "failed" },
+      session: directSession,
+      error: "photo_upload_not_active",
+    },
+    {
+      label: "expired active session",
+      asset: directAsset,
+      session: { ...directSession, expires_at: new Date(0) },
+      error: "photo_upload_expired",
+    },
+  ])("does not re-sign an idempotent $label", async (existing) => {
+    const operations = ops({
+      findSessionByIdempotencyKey: vi.fn(async () => existing),
+    });
+
+    await expect(
+      handleCreateUpload(req(createBody), res(), operations),
+    ).rejects.toThrow(existing.error);
+
+    expect(operations.storage.createDirectUpload).not.toHaveBeenCalled();
+    expect(operations.createAssetAndSession).not.toHaveBeenCalled();
+  });
+
+  it("preserves the winner object when an idempotency race resolves to the granted pathname", async () => {
+    const operations = ops({
+      createAssetAndSession: vi.fn(async (input: any) => ({
+        asset: {
+          ...directAsset,
+          id: "winner",
+          object_key: input.objectKey,
+        },
+        session: {
+          ...directSession,
+          id: "winner-session",
+        },
+        created: false,
+      })),
+    });
+
+    await handleCreateUpload(req(createBody), res(), operations);
+
+    expect(operations.storage.delete).not.toHaveBeenCalled();
+    expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(1);
+  });
   it("deletes a newly granted pathname when a concurrent create returns the winner", async () => {
     const winner = {
       asset: {
@@ -254,8 +316,30 @@ describe("hardened multipart upload lifecycle", () => {
     expect(operations.storage.delete).toHaveBeenCalledWith([
       { provider: "vercel-blob", key: issuedKey },
     ]);
+    expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(2);
   });
 
+  it("cleans a distinct race grant without re-signing a terminal winner", async () => {
+    const winner = {
+      asset: { ...directAsset, status: "uploaded" },
+      session: { ...directSession, status: "completed" },
+      created: false,
+    };
+    const operations = ops({
+      createAssetAndSession: vi.fn(async () => winner),
+    });
+
+    await expect(
+      handleCreateUpload(req(createBody), res(), operations),
+    ).rejects.toThrow("photo_upload_not_active");
+
+    const issuedKey = vi.mocked(operations.storage.createDirectUpload)
+      .mock.calls[0][0].key;
+    expect(operations.storage.delete).toHaveBeenCalledWith([
+      { provider: "vercel-blob", key: issuedKey },
+    ]);
+    expect(operations.storage.createDirectUpload).toHaveBeenCalledTimes(1);
+  });
   it("reconciles an already completed provider object without completing it twice", async () => {
     const operations = ops();
     await handleComplete(
@@ -623,10 +707,90 @@ describe("provider-neutral single-PUT lifecycle", () => {
       directSession,
       code,
     );
+    expect(vi.mocked(operations.failSession).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(storage.delete).mock.invocationCallOrder[0],
+    );
     expect(operations.completeSession).not.toHaveBeenCalled();
     expect(operations.publishUploaded).not.toHaveBeenCalled();
   });
 
+  it("does not delete when a competing completion wins the terminal transition", async () => {
+    const storage = ops().storage;
+    vi.mocked(storage.inspect).mockResolvedValue({
+      bytes: 12,
+      contentType: "image/jpeg",
+      etag: "different-etag",
+    });
+    const operations = ops({
+      storage,
+      findOwnedSession: vi.fn(async () => ({
+        asset: directAsset,
+        session: directSession,
+      })),
+      failSession: vi.fn(async () => ({
+        asset: { ...directAsset, status: "uploaded" },
+        claimed: false,
+      })),
+    });
+
+    await expect(
+      handleComplete(
+        req(
+          { etag: "etag-direct" },
+          { id: "phjob_1", sessionId: "phups_1" },
+        ),
+        res(),
+        operations,
+      ),
+    ).rejects.toThrow("photo_upload_completion_mismatch");
+
+    expect(operations.failSession).toHaveBeenCalledTimes(1);
+    expect(storage.delete).not.toHaveBeenCalled();
+    expect(operations.publishUploaded).not.toHaveBeenCalled();
+  });
+
+  it("keeps the stable mismatch after a claimed failure when deletion fails", async () => {
+    const order: string[] = [];
+    const storage = ops().storage;
+    vi.mocked(storage.inspect).mockResolvedValue({
+      bytes: 12,
+      contentType: "image/jpeg",
+      etag: "different-etag",
+    });
+    vi.mocked(storage.delete).mockImplementation(async () => {
+      order.push("delete");
+      throw new PhotoStorageError("photo_storage_provider_error");
+    });
+    const operations = ops({
+      storage,
+      findOwnedSession: vi.fn(async () => ({
+        asset: directAsset,
+        session: directSession,
+      })),
+      failSession: vi.fn(async () => {
+        order.push("claim");
+        return {
+          asset: { ...directAsset, status: "failed" },
+          claimed: true,
+        };
+      }),
+    });
+
+    await expect(
+      handleComplete(
+        req(
+          { etag: "etag-direct" },
+          { id: "phjob_1", sessionId: "phups_1" },
+        ),
+        res(),
+        operations,
+      ),
+    ).rejects.toThrow("photo_upload_completion_mismatch");
+
+    expect(order).toEqual(["claim", "delete"]);
+    expect(operations.failSession).toHaveBeenCalledTimes(1);
+    expect(operations.publishUploaded).not.toHaveBeenCalled();
+  });
   it("fails provider mismatch before any object access", async () => {
     const operations = ops({
       findOwnedSession: vi.fn(async () => ({
@@ -873,6 +1037,68 @@ describe("serializable upload operations", () => {
       },
       context,
     );
+  });
+  it("reports a lost failure claim when completion wins the conditional race", async () => {
+    const context = { transactionManager: {} };
+    const uploaded = { ...directAsset, status: "uploaded" };
+    const service = {
+      withPhotoJobTransaction: vi.fn(async (callback) => callback(context)),
+      listPhotoUploadSessions: vi
+        .fn()
+        .mockResolvedValueOnce([directSession])
+        .mockResolvedValueOnce([
+          {
+            ...directSession,
+            status: "completed",
+            completion_metadata: { etag: "winner-etag" },
+          },
+        ]),
+      retrievePhotoAsset: vi
+        .fn()
+        .mockResolvedValueOnce(directAsset)
+        .mockResolvedValueOnce(uploaded),
+      updatePhotoUploadSessions: vi.fn(async () => []),
+      updatePhotoAssets: vi.fn(),
+    };
+    const operations = medusaOperations(service);
+
+    await expect(
+      operations.failSession(
+        directAsset,
+        directSession,
+        "photo_upload_completion_mismatch",
+      ),
+    ).resolves.toEqual({ asset: uploaded, claimed: false });
+
+    expect(service.updatePhotoAssets).not.toHaveBeenCalled();
+  });
+  it("reports a lost failure claim when another failure wins the conditional race", async () => {
+    const context = { transactionManager: {} };
+    const failed = { ...directAsset, status: "failed" };
+    const service = {
+      withPhotoJobTransaction: vi.fn(async (callback) => callback(context)),
+      listPhotoUploadSessions: vi
+        .fn()
+        .mockResolvedValueOnce([directSession])
+        .mockResolvedValueOnce([{ ...directSession, status: "aborted" }]),
+      retrievePhotoAsset: vi
+        .fn()
+        .mockResolvedValueOnce(directAsset)
+        .mockResolvedValueOnce(failed),
+      updatePhotoUploadSessions: vi.fn(async () => []),
+      updatePhotoAssets: vi.fn(),
+    };
+    const operations = medusaOperations(service);
+
+    await expect(
+      operations.failSession(
+        directAsset,
+        directSession,
+        "photo_upload_completion_mismatch",
+      ),
+    ).resolves.toEqual({ asset: failed, claimed: false });
+
+    expect(service.updatePhotoAssets).not.toHaveBeenCalled();
   });
   it("uses one context and conditional active/uploading selectors", async () => {
     const context = { transactionManager: {} };

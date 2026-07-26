@@ -25,6 +25,7 @@ const ORIGINAL_KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]
 const PREVIEW_KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/previews\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i
 const CRC32C_PATTERN = /^[A-Za-z0-9+/]{6}==$/
 const MAX_UPLOAD_SIGNATURE_SECONDS = 900
+const MAX_DIRECT_UPLOAD_BYTES = 50 * 1024 * 1024
 const MAX_READ_SIGNATURE_SECONDS = 300
 const MAX_PREFIX_BYTES = 64
 
@@ -32,7 +33,10 @@ type CommandClient = { send(command: unknown): Promise<any> }
 type Presign = (
   client: any,
   command: any,
-  options: { expiresIn: number },
+  options: {
+    expiresIn: number
+    signableHeaders?: Set<string>
+  },
 ) => Promise<string>
 
 export type S3AdapterDependencies = {
@@ -65,6 +69,15 @@ function validateExpiry(expiresIn: number, maximum: number): void {
   }
 }
 
+function validateDirectUploadBytes(bytes: number): void {
+  if (
+    !Number.isInteger(bytes)
+    || bytes < 1
+    || bytes > MAX_DIRECT_UPLOAD_BYTES
+  ) {
+    throw new PhotoStorageError("photo_storage_invalid_size")
+  }
+}
 function providerError(): PhotoStorageError {
   return new PhotoStorageError("photo_storage_provider_error")
 }
@@ -108,17 +121,20 @@ export class S3PhotoStorageAdapter
   }): Promise<PhotoDirectUploadGrant> {
     validateKey(input.key)
     validateExpiry(input.expiresIn, MAX_UPLOAD_SIGNATURE_SECONDS)
+    validateDirectUploadBytes(input.maxBytes)
     try {
       const command = new PutObjectCommand({
         Bucket: this.config.bucket,
         Key: input.key,
         ContentType: input.contentType,
+        ContentLength: input.maxBytes,
         ...(this.config.serverSideEncryption === false
           ? {}
           : { ServerSideEncryption: "AES256" as const }),
       })
       const url = await this.presign(this.client, command, {
         expiresIn: input.expiresIn,
+        signableHeaders: new Set(["content-length", "content-type"]),
       })
       return {
         provider: "s3",

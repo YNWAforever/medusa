@@ -62,13 +62,13 @@ describe("S3PhotoStorageAdapter guards", () => {
 })
 
 describe("S3PhotoStorageAdapter AWS operations", () => {
-  it("creates an encrypted direct-upload grant", async () => {
+  it("creates an encrypted exact-length direct-upload grant", async () => {
     const { storage, sign } = setup()
 
     await expect(storage.createDirectUpload({
       key,
       contentType: "image/jpeg",
-      maxBytes: 50 * 1024 * 1024,
+      maxBytes: 12,
       expiresIn: 900,
     })).resolves.toEqual({
       provider: "s3",
@@ -83,10 +83,29 @@ describe("S3PhotoStorageAdapter AWS operations", () => {
       Bucket: config.bucket,
       Key: key,
       ContentType: "image/jpeg",
+      ContentLength: 12,
       ServerSideEncryption: "AES256",
     })
-    expect(sign.mock.calls[0][2]).toEqual({ expiresIn: 900 })
+    expect(sign.mock.calls[0][2]).toEqual({
+      expiresIn: 900,
+      signableHeaders: new Set(["content-length", "content-type"]),
+    })
   })
+
+  it.each([0, 50 * 1024 * 1024 + 1, 1.5])(
+    "rejects an invalid direct-upload byte limit of %s",
+    async (maxBytes) => {
+      const { storage, sign } = setup()
+
+      await expect(storage.createDirectUpload({
+        key,
+        contentType: "image/jpeg",
+        maxBytes,
+        expiresIn: 900,
+      })).rejects.toThrow("photo_storage_invalid_size")
+      expect(sign).not.toHaveBeenCalled()
+    },
+  )
 
   it("starts an encrypted CRC32C multipart upload", async () => {
     const { storage, send } = setup([{ UploadId: "upload-1" }])
