@@ -13,6 +13,7 @@ describe("Playwright server ownership", () => {
     expect(servers).toHaveLength(2)
     expect(medusa?.reuseExistingServer).toBe(false)
     expect(medusa?.command).toContain("dev --workspace @fotomax/medusa")
+    expect(medusa?.env?.PHOTO_STORAGE_PROVIDER).toBe("s3")
     expect(storefront?.reuseExistingServer).toBe(false)
     expect(storefront?.command).toContain("next dev")
   })

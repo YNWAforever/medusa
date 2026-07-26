@@ -29,6 +29,7 @@ const medusaEnv = {
   AUTH_CORS: process.env.AUTH_CORS ?? `${baseURL},http://localhost:9000`,
   JWT_SECRET: process.env.JWT_SECRET ?? "fotomax-local-jwt-secret",
   COOKIE_SECRET: process.env.COOKIE_SECRET ?? "fotomax-local-cookie-secret",
+  PHOTO_STORAGE_PROVIDER: process.env.PHOTO_STORAGE_PROVIDER ?? "s3",
   PHOTO_STORAGE_ENDPOINT: process.env.PHOTO_STORAGE_ENDPOINT ?? "http://localhost:9002",
   PHOTO_STORAGE_REGION: process.env.PHOTO_STORAGE_REGION ?? "us-east-1",
   PHOTO_STORAGE_BUCKET: process.env.PHOTO_STORAGE_BUCKET ?? "fotomax-photo-private",
