@@ -1,3 +1,6 @@
+# Medusa runs on the host in local development; keep its compose integration provider explicit.
+x-fotomax-local-medusa-environment:
+  PHOTO_STORAGE_PROVIDER: "s3"
 services:
   postgres:
     image: postgres:16-alpine

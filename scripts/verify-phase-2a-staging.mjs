@@ -1,3 +1,4 @@
+import assert from "node:assert/strict"
 import { randomBytes, randomUUID } from "node:crypto"
 import sharp from "sharp"
 
@@ -20,6 +21,41 @@ const headers = {
   "x-publishable-api-key": publishableKey,
 }
 
+const singlePutUploadFields = [
+  "assetId",
+  "expiresAt",
+  "requiredHeaders",
+  "sessionId",
+  "status",
+  "strategy",
+  "uploadUrl",
+]
+
+function validateSinglePutUpload(upload) {
+  assert.ok(upload && typeof upload === "object" && !Array.isArray(upload))
+  assert.deepEqual(Object.keys(upload).sort(), singlePutUploadFields)
+  assert.equal(upload.strategy, "single-put")
+
+  for (const name of ["assetId", "expiresAt", "sessionId", "status", "uploadUrl"]) {
+    assert.equal(typeof upload[name], "string", `${name} must be a string`)
+    assert.ok(upload[name].trim(), `${name} must not be blank`)
+  }
+
+  assert.ok(
+    upload.requiredHeaders
+      && typeof upload.requiredHeaders === "object"
+      && !Array.isArray(upload.requiredHeaders),
+    "requiredHeaders must be an object",
+  )
+  const requiredHeaderEntries = Object.entries(upload.requiredHeaders)
+  assert.ok(requiredHeaderEntries.length > 0, "requiredHeaders must not be empty")
+  for (const [name, value] of requiredHeaderEntries) {
+    assert.ok(name.trim(), "requiredHeaders names must not be blank")
+    assert.equal(typeof value, "string", `${name} header must be a string`)
+    assert.ok(value.trim(), `${name} header must not be blank`)
+  }
+}
+
 async function request(base, path, options = {}) {
   const response = await fetch(`${base}${path}`, {
     ...options,
@@ -36,19 +72,6 @@ async function request(base, path, options = {}) {
     throw new Error(`${options.method ?? "GET"} ${path} returned ${response.status}: ${JSON.stringify(body)}`)
   }
   return body
-}
-
-function crc32c(bytes) {
-  let crc = 0xffffffff
-  for (const byte of bytes) {
-    crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0x82f63b78 : 0)
-    }
-  }
-  const output = Buffer.alloc(4)
-  output.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
-  return output.toString("base64")
 }
 
 async function waitForPhotoAsset(jobId, assetId, photoHeaders) {
@@ -109,7 +132,6 @@ const photoJob = (await request(medusaUrl, "/store/photo-jobs", {
 const image = await sharp({
   create: { width: 1800, height: 1200, channels: 3, background: { r: 31, g: 121, b: 109 } },
 }).jpeg({ quality: 86 }).toBuffer()
-const checksumCRC32C = crc32c(image)
 const upload = (await request(medusaUrl, `/store/photo-jobs/${photoJob.id}/uploads`, {
   method: "POST",
   headers: photoHeaders,
@@ -121,18 +143,19 @@ const upload = (await request(medusaUrl, `/store/photo-jobs/${photoJob.id}/uploa
     signatureBase64: image.subarray(0, 64).toString("base64"),
   }),
 })).upload
-const part = (await request(medusaUrl, `/store/photo-jobs/${photoJob.id}/uploads/${upload.sessionId}/parts`, {
-  method: "POST",
-  headers: photoHeaders,
-  body: JSON.stringify({ partNumber: 1, checksumCRC32C }),
-})).part
-const put = await fetch(part.url, { method: "PUT", headers: part.requiredHeaders, body: image })
-const etag = put.headers.get("etag")
-if (!put.ok || !etag) throw new Error(`Synthetic photo PUT returned ${put.status}`)
+validateSinglePutUpload(upload)
+const put = await fetch(upload.uploadUrl, {
+  method: "PUT",
+  headers: upload.requiredHeaders,
+  body: image,
+})
+if (!put.ok) throw new Error(`Synthetic photo PUT returned ${put.status}`)
+const etag = put.headers.get("etag")?.trim()
+assert.ok(etag, "Synthetic photo PUT did not return an ETag")
 await request(medusaUrl, `/store/photo-jobs/${photoJob.id}/uploads/${upload.sessionId}/complete`, {
   method: "POST",
   headers: photoHeaders,
-  body: JSON.stringify({ parts: [{ partNumber: 1, etag, checksumCRC32C }] }),
+  body: JSON.stringify({ etag }),
 })
 const photoAsset = await waitForPhotoAsset(photoJob.id, upload.assetId, photoHeaders)
 const currentPhotoJob = (await request(medusaUrl, `/store/photo-jobs/${photoJob.id}`, { headers: photoHeaders })).photo_job

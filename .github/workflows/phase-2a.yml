@@ -45,6 +45,7 @@ jobs:
       COOKIE_SECRET: fotomax-ci-cookie-secret
       MEDUSA_BACKEND_URL: http://localhost:9000
       STOREFRONT_SESSION_SECRET: fotomax-ci-session-secret
+      PHOTO_STORAGE_PROVIDER: "s3"
       PHOTO_STORAGE_ENDPOINT: http://localhost:9002
       PHOTO_STORAGE_REGION: us-east-1
       PHOTO_STORAGE_BUCKET: fotomax-photo-private

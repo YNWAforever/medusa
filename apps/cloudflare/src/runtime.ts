@@ -1,4 +1,4 @@
-const requiredSecretNames = [
+const coreSecretNames = [
   "DATABASE_URL",
   "REDIS_URL",
   "STORE_CORS",
@@ -6,14 +6,22 @@ const requiredSecretNames = [
   "AUTH_CORS",
   "JWT_SECRET",
   "COOKIE_SECRET",
-  "PHOTO_STORAGE_ENDPOINT",
-  "PHOTO_STORAGE_REGION",
-  "PHOTO_STORAGE_BUCKET",
-  "PHOTO_STORAGE_ACCESS_KEY",
-  "PHOTO_STORAGE_SECRET_KEY",
-  "PHOTO_STORAGE_FORCE_PATH_STYLE",
-  "PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION",
 ] as const
+
+const photoStorageProviderName = "PHOTO_STORAGE_PROVIDER" as const
+
+const providerSecretNames = {
+  s3: [
+    "PHOTO_STORAGE_ENDPOINT",
+    "PHOTO_STORAGE_REGION",
+    "PHOTO_STORAGE_BUCKET",
+    "PHOTO_STORAGE_ACCESS_KEY",
+    "PHOTO_STORAGE_SECRET_KEY",
+    "PHOTO_STORAGE_FORCE_PATH_STYLE",
+    "PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION",
+  ],
+  "vercel-blob": ["BLOB_READ_WRITE_TOKEN"],
+} as const
 
 const optionalEnvironmentNames = [
   "PHOTO_RETENTION_TEST_MODE",
@@ -21,24 +29,47 @@ const optionalEnvironmentNames = [
   "MEDUSA_CLOUD_ENVIRONMENT_NAME",
 ] as const
 
-type SecretName = (typeof requiredSecretNames)[number]
+type CoreSecretName = (typeof coreSecretNames)[number]
+type PhotoStorageProviderName = typeof photoStorageProviderName
+type S3SecretName = (typeof providerSecretNames.s3)[number]
+type VercelBlobSecretName = (typeof providerSecretNames)["vercel-blob"][number]
+type SecretName =
+  | CoreSecretName
+  | PhotoStorageProviderName
+  | S3SecretName
+  | VercelBlobSecretName
 type OptionalEnvironmentName = (typeof optionalEnvironmentNames)[number]
 
-export type RuntimeSecrets = Record<SecretName, string> &
-  Partial<Record<OptionalEnvironmentName, string>>
+export type RuntimeSecrets = Partial<
+  Record<SecretName | OptionalEnvironmentName, string>
+>
+
+function requireSecret(source: RuntimeSecrets, name: SecretName): string {
+  const value = source[name]?.trim()
+
+  if (!value) {
+    throw new Error(`Missing Cloudflare secret: ${name}`)
+  }
+
+  return value
+}
 
 export function buildContainerEnv(source: RuntimeSecrets): Record<string, string> {
-  const secrets = Object.fromEntries(
-    requiredSecretNames.map((name) => {
-      const value = source[name]?.trim()
+  const coreSecrets = Object.fromEntries(
+    coreSecretNames.map((name) => [name, requireSecret(source, name)]),
+  )
+  const provider = requireSecret(source, photoStorageProviderName)
 
-      if (!value) {
-        throw new Error(`Missing Cloudflare secret: ${name}`)
-      }
+  if (provider !== "s3" && provider !== "vercel-blob") {
+    throw new Error("Invalid Cloudflare secret: PHOTO_STORAGE_PROVIDER")
+  }
 
-      return [name, value]
-    }),
-  ) as Record<SecretName, string>
+  const providerSecrets = Object.fromEntries(
+    providerSecretNames[provider].map((name) => [
+      name,
+      requireSecret(source, name),
+    ]),
+  )
   const optionalEnvironment = Object.fromEntries(
     optionalEnvironmentNames.flatMap((name) => {
       const value = source[name]?.trim()
@@ -47,7 +78,9 @@ export function buildContainerEnv(source: RuntimeSecrets): Record<string, string
   )
 
   return {
-    ...secrets,
+    ...coreSecrets,
+    PHOTO_STORAGE_PROVIDER: provider,
+    ...providerSecrets,
     ...optionalEnvironment,
     NODE_ENV: "production",
     PORT: "9000",
