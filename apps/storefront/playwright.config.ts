@@ -16,27 +16,67 @@ const inheritedEnv = Object.fromEntries(
     (entry): entry is [string, string] => entry[1] !== undefined,
   ),
 );
+const backendOnlyEnvironmentKeys = new Set([
+  "ADMIN_CORS",
+  "AUTH_CORS",
+  "BLOB_READ_WRITE_TOKEN",
+  "COOKIE_SECRET",
+  "DATABASE_URL",
+  "JWT_SECRET",
+  "MEDUSA_WORKER_MODE",
+  "PGDATABASE",
+  "PGHOST",
+  "PGPASSFILE",
+  "PGPASSWORD",
+  "PGPORT",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+  "PGUSER",
+  "REDIS_URL",
+  "STORE_CORS",
+  "VERCEL_OIDC_TOKEN",
+]);
+const backendOnlyEnvironmentPrefixes = [
+  "AWS_ACCESS_KEY_",
+  "AWS_CONTAINER_CREDENTIALS_",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_SHARED_CREDENTIALS_",
+  "AWS_WEB_IDENTITY_",
+  "DB_",
+  "MINIO_",
+  "PHOTO_STORAGE_",
+  "POSTGRES_",
+  "REDIS_",
+  "S3_",
+];
+const childProcessEnv = Object.fromEntries(
+  Object.entries(inheritedEnv).filter(([key]) => {
+    const normalizedKey = key.toUpperCase();
+    return !backendOnlyEnvironmentKeys.has(normalizedKey)
+      && !backendOnlyEnvironmentPrefixes.some((prefix) =>
+        normalizedKey.startsWith(prefix));
+  }),
+);
 const medusaEnv = {
-  ...inheritedEnv,
+  ...childProcessEnv,
   NODE_ENV: "development",
-  DATABASE_URL:
-    process.env.DATABASE_URL ??
-    "postgres://fotomax:fotomax_local_only@localhost:5432/fotomax",
-  REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
+  DATABASE_URL: "postgres://fotomax:fotomax_local_only@localhost:5432/fotomax",
+  REDIS_URL: "redis://localhost:6379",
   MEDUSA_WORKER_MODE: "shared",
-  STORE_CORS: process.env.STORE_CORS ?? `${baseURL},http://localhost:9000`,
-  ADMIN_CORS: process.env.ADMIN_CORS ?? "http://localhost:9000",
-  AUTH_CORS: process.env.AUTH_CORS ?? `${baseURL},http://localhost:9000`,
-  JWT_SECRET: process.env.JWT_SECRET ?? "fotomax-local-jwt-secret",
-  COOKIE_SECRET: process.env.COOKIE_SECRET ?? "fotomax-local-cookie-secret",
-  PHOTO_STORAGE_PROVIDER: process.env.PHOTO_STORAGE_PROVIDER ?? "s3",
-  PHOTO_STORAGE_ENDPOINT: process.env.PHOTO_STORAGE_ENDPOINT ?? "http://localhost:9002",
-  PHOTO_STORAGE_REGION: process.env.PHOTO_STORAGE_REGION ?? "us-east-1",
-  PHOTO_STORAGE_BUCKET: process.env.PHOTO_STORAGE_BUCKET ?? "fotomax-photo-private",
-  PHOTO_STORAGE_ACCESS_KEY: process.env.PHOTO_STORAGE_ACCESS_KEY ?? "fotomax_minio",
-  PHOTO_STORAGE_SECRET_KEY: process.env.PHOTO_STORAGE_SECRET_KEY ?? "fotomax_minio_local_only",
-  PHOTO_STORAGE_FORCE_PATH_STYLE: process.env.PHOTO_STORAGE_FORCE_PATH_STYLE ?? "true",
-  PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: process.env.PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION ?? "false",
+  STORE_CORS: `${baseURL},http://localhost:9000`,
+  ADMIN_CORS: "http://localhost:9000",
+  AUTH_CORS: `${baseURL},http://localhost:9000`,
+  JWT_SECRET: "fotomax-local-jwt-secret",
+  COOKIE_SECRET: "fotomax-local-cookie-secret",
+  PHOTO_STORAGE_PROVIDER: "s3",
+  PHOTO_STORAGE_ENDPOINT: "http://localhost:9002",
+  PHOTO_STORAGE_REGION: "us-east-1",
+  PHOTO_STORAGE_BUCKET: "fotomax-photo-private",
+  PHOTO_STORAGE_ACCESS_KEY: "fotomax_minio",
+  PHOTO_STORAGE_SECRET_KEY: "fotomax_minio_local_only",
+  PHOTO_STORAGE_FORCE_PATH_STYLE: "true",
+  PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false",
 };
 async function resolvePublishableKey(): Promise<string> {
   const configured = process.env.MEDUSA_PUBLISHABLE_KEY;
@@ -74,7 +114,7 @@ async function resolvePublishableKey(): Promise<string> {
 }
 const publishableKey = await resolvePublishableKey();
 const storefrontEnv = {
-  ...inheritedEnv,
+  ...childProcessEnv,
   NODE_ENV: "development",
   FOTOMAX_E2E: "1",
   STOREFRONT_ORIGIN: baseURL,
