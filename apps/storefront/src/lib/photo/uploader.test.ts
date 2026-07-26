@@ -244,6 +244,123 @@ describe("single-PUT uploader", () => {
     expect(progress).toEqual([50, 100]);
   });
 
+  it("replaces an already-expired session before sending provider bytes", async () => {
+    const createUpload = vi
+      .fn()
+      .mockResolvedValueOnce({
+        assetId: "asset_expired",
+        sessionId: "session_expired",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/expired",
+        requiredHeaders: { "content-type": "image/jpeg" },
+        status: "active",
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+      })
+      .mockResolvedValueOnce({
+        assetId: "asset_replacement",
+        sessionId: "session_replacement",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/replacement",
+        requiredHeaders: { "content-type": "image/jpeg" },
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    const api = client({ createUpload });
+    const directPut = vi.fn(async () => '"replacement-etag"');
+
+    await new MultipartUploader(api, vi.fn() as any, directPut).upload(
+      "job_1",
+      file,
+      "source",
+    );
+
+    expect(api.abort).toHaveBeenCalledWith("job_1", "session_expired");
+    expect(createUpload).toHaveBeenCalledTimes(2);
+    expect(createUpload.mock.calls[1]?.[1]).toMatchObject({
+      sourceIdempotencyKey: "source:replacement:1",
+    });
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(directPut).toHaveBeenCalledWith(
+      "https://blob.invalid/replacement",
+      file,
+      { "content-type": "image/jpeg" },
+      expect.any(Function),
+      undefined,
+    );
+    expect(api.complete).toHaveBeenCalledWith(
+      "job_1",
+      "session_replacement",
+      { strategy: "single-put", etag: '"replacement-etag"' },
+      undefined,
+    );
+  });
+
+  it("recovers when stable create finds an expired idempotent session", async () => {
+    const createUpload = vi
+      .fn()
+      .mockRejectedValueOnce(new PhotoClientError("photo_upload_expired", 409))
+      .mockResolvedValueOnce({
+        assetId: "asset_replacement",
+        sessionId: "session_replacement",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/replacement",
+        requiredHeaders: {},
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    const api = client({ createUpload });
+    const directPut = vi.fn(async () => '"replacement-etag"');
+
+    await new MultipartUploader(api, vi.fn() as any, directPut).upload(
+      "job_1",
+      file,
+      "source",
+    );
+
+    expect(createUpload).toHaveBeenCalledTimes(2);
+    expect(createUpload.mock.calls[1]?.[1]).toMatchObject({
+      sourceIdempotencyKey: "source:replacement:1",
+    });
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(api.complete).toHaveBeenCalledWith(
+      "job_1",
+      "session_replacement",
+      { strategy: "single-put", etag: '"replacement-etag"' },
+      undefined,
+    );
+  });
+
+  it("does not replace a generic direct PUT failure for an active grant", async () => {
+    const api = client({
+      createUpload: vi.fn(async () => ({
+        assetId: "asset_1",
+        sessionId: "session_1",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/signed",
+        requiredHeaders: {},
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })),
+    });
+    const failure = new PhotoClientError("photo_upload_failed", 503);
+    const directPut = vi.fn(async () => {
+      throw failure;
+    });
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "source",
+      ),
+    ).rejects.toBe(failure);
+
+    expect(api.createUpload).toHaveBeenCalledTimes(1);
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(api.complete).not.toHaveBeenCalled();
+  });
   it("retains the CRC32C multipart completion path", async () => {
     const api = client();
     const multipartPut = vi.fn(async () =>
@@ -338,6 +455,33 @@ describe("putFileWithProgress", () => {
     expect(remove).toHaveBeenCalledTimes(1);
   });
 
+  it("does not report 100 percent before all bytes are uploaded", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    const nearCompleteFile = new File(
+      [new Uint8Array(1000)],
+      "near-complete.jpg",
+      { type: "image/jpeg" },
+    );
+    const progress: Array<{ uploadedBytes: number; totalBytes: number; percent: number }> = [];
+    const result = putFileWithProgress(
+      "https://blob.invalid/signed",
+      nearCompleteFile,
+      {},
+      (value) => progress.push(value),
+    );
+    const xhr = FakeXMLHttpRequest.instances[0]!;
+
+    xhr.upload.onprogress?.({ loaded: 995, total: 1000 });
+    xhr.status = 200;
+    xhr.etag = '"blob-etag"';
+    xhr.onload?.();
+
+    await expect(result).resolves.toBe('"blob-etag"');
+    expect(progress).toEqual([
+      { uploadedBytes: 995, totalBytes: 1000, percent: 99 },
+      { uploadedBytes: 1000, totalBytes: 1000, percent: 100 },
+    ]);
+  });
   it.each([
     { status: 204, etag: " " },
     { status: 500, etag: '"blob-etag"' },

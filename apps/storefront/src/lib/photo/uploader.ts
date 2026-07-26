@@ -99,6 +99,21 @@ async function retry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
 async function signature(file: File): Promise<string> {
   return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
 }
+type CreateUploadInput = Parameters<PhotoClient["createUpload"]>[1];
+
+function isUploadExpiredError(error: unknown): error is PhotoClientError {
+  return error instanceof PhotoClientError && error.code === "photo_upload_expired";
+}
+
+function isSessionExpired(session: PhotoUploadSessionView): boolean {
+  const expiresAt = Date.parse(session.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function uploadPercent(uploadedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0 || uploadedBytes >= totalBytes) return 100;
+  return Math.min(99, Math.floor((uploadedBytes / totalBytes) * 100));
+}
 export type DirectPut = (
   url: string,
   file: File,
@@ -148,9 +163,7 @@ export const putFileWithProgress: DirectPut = (
       onProgress({
         uploadedBytes,
         totalBytes: file.size,
-        percent: file.size
-          ? Math.round((uploadedBytes / file.size) * 100)
-          : 100,
+        percent: uploadPercent(uploadedBytes, file.size),
       });
     };
     function onSignalAbort() {
@@ -215,14 +228,34 @@ export class MultipartUploader {
       sourceIdempotencyKey,
       signatureBase64: await signature(file),
     };
-    let session = await this.client.createUpload(
-      jobId,
-      input,
-      callbacks.signal,
-    );
-    callbacks.onSession?.(session);
+    let session: PhotoUploadSessionView;
+    try {
+      session = await this.client.createUpload(jobId, input, callbacks.signal);
+      callbacks.onSession?.(session);
+    } catch (error) {
+      if (!isUploadExpiredError(error)) throw error;
+      session = await this.replaceUpload(
+        jobId,
+        input,
+        sourceIdempotencyKey,
+        callbacks,
+      );
+    }
     if (session.status === "completed")
       return { assetId: session.assetId, sessionId: session.sessionId };
+
+    if (isSessionExpired(session)) {
+      session = await this.replaceUpload(
+        jobId,
+        input,
+        sourceIdempotencyKey,
+        callbacks,
+        session,
+      );
+      if (session.status === "completed")
+        return { assetId: session.assetId, sessionId: session.sessionId };
+    }
+
     try {
       return await this.uploadSession(
         jobId,
@@ -232,21 +265,15 @@ export class MultipartUploader {
         callbacks.signal,
       );
     } catch (error) {
-      if (
-        !(error instanceof PhotoClientError) ||
-        error.code !== "photo_upload_expired"
-      )
+      if (!isUploadExpiredError(error) && !isSessionExpired(session))
         throw error;
-      await this.client.abort(jobId, session.sessionId).catch(() => undefined);
-      session = await this.client.createUpload(
+      session = await this.replaceUpload(
         jobId,
-        {
-          ...input,
-          sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:${Date.now()}`,
-        },
-        callbacks.signal,
+        input,
+        sourceIdempotencyKey,
+        callbacks,
+        session,
       );
-      callbacks.onSession?.(session);
       if (session.status === "completed")
         return { assetId: session.assetId, sessionId: session.sessionId };
       return this.uploadSession(
@@ -258,6 +285,28 @@ export class MultipartUploader {
       );
     }
   }
+
+  private async replaceUpload(
+    jobId: string,
+    input: CreateUploadInput,
+    sourceIdempotencyKey: string,
+    callbacks: UploadCallbacks,
+    expiredSession?: PhotoUploadSessionView,
+  ): Promise<PhotoUploadSessionView> {
+    if (expiredSession)
+      await this.client.abort(jobId, expiredSession.sessionId).catch(() => undefined);
+    const replacement = await this.client.createUpload(
+      jobId,
+      {
+        ...input,
+        sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:1`,
+      },
+      callbacks.signal,
+    );
+    callbacks.onSession?.(replacement);
+    return replacement;
+  }
+
   async abort(jobId: string, sessionId: string): Promise<void> {
     await this.client.abort(jobId, sessionId);
   }
@@ -340,9 +389,7 @@ export class MultipartUploader {
       onProgress({
         uploadedBytes,
         totalBytes: file.size,
-        percent: file.size
-          ? Math.round((uploadedBytes / file.size) * 100)
-          : 100,
+        percent: uploadPercent(uploadedBytes, file.size),
       });
     }
     await this.client.complete(
