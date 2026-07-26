@@ -35,8 +35,9 @@ function validateSinglePutUpload(upload) {
   assert.ok(upload && typeof upload === "object" && !Array.isArray(upload))
   assert.deepEqual(Object.keys(upload).sort(), singlePutUploadFields)
   assert.equal(upload.strategy, "single-put")
+  assert.equal(upload.status, "active")
 
-  for (const name of ["assetId", "expiresAt", "sessionId", "status", "uploadUrl"]) {
+  for (const name of ["assetId", "expiresAt", "sessionId", "uploadUrl"]) {
     assert.equal(typeof upload[name], "string", `${name} must be a string`)
     assert.ok(upload[name].trim(), `${name} must not be blank`)
   }

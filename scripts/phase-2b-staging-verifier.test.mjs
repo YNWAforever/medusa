@@ -25,6 +25,7 @@ test("verifies a generated private photo inside the mixed staging order", () => 
   )
   assert.match(verifier, /Object\.keys\(upload\)\.sort\(\)/)
   assert.match(verifier, /upload\.strategy,\s*"single-put"/)
+  assert.match(verifier, /upload\.status,\s*"active"/)
   assert.match(verifier, /method:\s*"PUT"/)
   assert.match(verifier, /headers:\s*upload\.requiredHeaders/)
   assert.match(verifier, /put\.headers\.get\("etag"\)/)
