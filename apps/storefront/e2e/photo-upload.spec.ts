@@ -22,6 +22,7 @@ type PutRequest = {
 
 type MockUploadOptions = {
   expireFirst?: boolean;
+  failFirstCompletionBeforeCommit?: boolean;
   providerFailureStatus?: 401 | 403;
 };
 
@@ -36,6 +37,9 @@ async function mockUpload(page: Page, options: MockUploadOptions = {}) {
   const puts: PutRequest[] = [];
   const completions: Record<string, unknown>[] = [];
   const aborts: string[] = [];
+  const completionCommits: string[] = [];
+  const sessionsBySource = new Map<string, (typeof sessions)[number]>();
+  let completionAttempts = 0;
 
   await page.route("**/api/photo-jobs/job_1", async (route) =>
     route.fulfill({
@@ -53,8 +57,21 @@ async function mockUpload(page: Page, options: MockUploadOptions = {}) {
   await page.route("**/api/photo-jobs/job_1/uploads", async (route) => {
     const request = await route.request().postDataJSON() as UploadRequest;
     uploadRequests.push(request);
-    const attempt = uploadRequests.length;
-    const expired = options.expireFirst === true && attempt === 1;
+    const existing = sessionsBySource.get(request.sourceIdempotencyKey);
+    if (existing) {
+      return route.fulfill({
+        json: {
+          upload: {
+            ...existing,
+            strategy: "single-put",
+            requiredHeaders: { "content-type": "image/jpeg" },
+            status: "active",
+          },
+        },
+      });
+    }
+    const attempt = sessions.length + 1;
+    const expired = options.expireFirst === true && sessions.length === 0;
     const providerFailureStatus = attempt === 1
       ? options.providerFailureStatus
       : undefined;
@@ -71,6 +88,7 @@ async function mockUpload(page: Page, options: MockUploadOptions = {}) {
         : "/signed/photo-put",
     };
     sessions.push(session);
+    sessionsBySource.set(request.sourceIdempotencyKey, session);
     return route.fulfill({
       json: {
         upload: {
@@ -112,9 +130,20 @@ async function mockUpload(page: Page, options: MockUploadOptions = {}) {
       );
       const sessionId = new URL(route.request().url()).pathname
         .split("/").at(-2);
+      completionAttempts += 1;
+      if (
+        options.failFirstCompletionBeforeCommit === true &&
+        completionAttempts === 1
+      ) {
+        return route.fulfill({
+          status: 503,
+          json: { code: "photo_upload_completion_unavailable" },
+        });
+      }
       const session = sessions.find((candidate) =>
         candidate.sessionId === sessionId
       );
+      if (session) completionCommits.push(session.assetId);
       return route.fulfill({
         json: {
           asset: {
@@ -138,7 +167,14 @@ async function mockUpload(page: Page, options: MockUploadOptions = {}) {
     route.fulfill({ json: { asset: { id: "asset_1", status: "deleted" } } }),
   );
 
-  return { aborts, completions, puts, sessions, uploadRequests };
+  return {
+    aborts,
+    completionCommits,
+    completions,
+    puts,
+    sessions,
+    uploadRequests,
+  };
 }
 
 async function browserJson(
@@ -199,6 +235,71 @@ test("uploads and restores a direct-PUT photo in the localized workspace", async
     path: `../../docs/verification/evidence/photo-upload-${testInfo.project.name}.png`,
     fullPage: true,
   });
+});
+
+test("reload resumes completion after transport failure without a second immutable PUT", async ({
+  page,
+}) => {
+  const state = await mockUpload(page, {
+    failFirstCompletionBeforeCommit: true,
+  });
+  await page.goto("/photo-upload-e2e?locale=en");
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "resume.jpg",
+    mimeType: "image/jpeg",
+    buffer: jpeg,
+  });
+
+  await expect(page.getByRole("progressbar", {
+    name: "resume.jpg: Upload failed",
+  })).toBeVisible();
+  expect(state.puts).toHaveLength(1);
+  expect(state.sessions).toHaveLength(1);
+  expect(state.completions).toEqual([{ etag: '"etag-1"' }]);
+  expect(state.completionCommits).toHaveLength(0);
+  const pending = await page.evaluate(() => {
+    const rows = JSON.parse(
+      localStorage.getItem("fotomax:photo-queue:job_1") ?? "[]",
+    );
+    return rows[0];
+  });
+  expect(pending).toMatchObject({
+    assetId: "asset_1",
+    sessionId: "session_1",
+    completionEtag: '"etag-1"',
+  });
+
+  await page.reload();
+  await expect(page.getByRole("progressbar", {
+    name: "resume.jpg: Upload failed",
+  })).toBeVisible();
+  await page.locator(".photo-retry-picker input").setInputFiles({
+    name: "resume.jpg",
+    mimeType: "image/jpeg",
+    buffer: jpeg,
+  });
+
+  await expect(page.getByRole("progressbar", {
+    name: "resume.jpg: Uploaded",
+  })).toHaveJSProperty("value", 100);
+  expect(state.puts).toHaveLength(1);
+  expect(state.sessions).toHaveLength(1);
+  expect(state.uploadRequests).toHaveLength(2);
+  expect(state.uploadRequests[1].sourceIdempotencyKey).toBe(
+    state.uploadRequests[0].sourceIdempotencyKey,
+  );
+  expect(state.completions).toEqual([
+    { etag: '"etag-1"' },
+    { etag: '"etag-1"' },
+  ]);
+  expect(state.completionCommits).toEqual(["asset_1"]);
+  const terminal = await page.evaluate(() => {
+    const rows = JSON.parse(
+      localStorage.getItem("fotomax:photo-queue:job_1") ?? "[]",
+    );
+    return rows[0];
+  });
+  expect(terminal).not.toHaveProperty("completionEtag");
 });
 
 test("replaces an expired direct grant and reaches 100 percent", async ({

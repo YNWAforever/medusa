@@ -22,6 +22,7 @@ type QueueRow = {
   file?: File;
   sessionId?: string;
   assetId?: string;
+  completionEtag?: string;
   error?: string;
 };
 const labels = {
@@ -127,6 +128,36 @@ export function PhotoUploader({
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
     );
+  const persistPatch = (row: QueueRow, patch: Partial<QueueRow>) => {
+    let saved: QueueRow[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      if (Array.isArray(parsed)) saved = parsed;
+    } catch {
+      saved = [];
+    }
+    const { file: _file, ...durableRow } = row;
+    const existing = saved.find((item) => item.id === row.id) ?? durableRow;
+    const persisted = { ...existing, ...patch };
+    const next = saved.some((item) => item.id === row.id)
+      ? saved.map((item) => (item.id === row.id ? persisted : item))
+      : [...saved, persisted];
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    update(row.id, patch);
+  };
+  const removePersistedRow = (id: string) => {
+    let saved: QueueRow[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      if (Array.isArray(parsed)) saved = parsed;
+    } catch {
+      saved = [];
+    }
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(saved.filter((item) => item.id !== id)),
+    );
+  };
   const message = (code?: string) =>
     copy.errors[code as keyof typeof copy.errors] ??
     copy.errors.photo_upload_failed;
@@ -137,14 +168,48 @@ export function PhotoUploader({
     abortControllers.current[row.id] = controller;
     update(row.id, { status: "uploading", error: undefined });
     try {
+      const completionCheckpoint =
+        row.assetId && row.sessionId && row.completionEtag?.trim()
+          ? {
+              assetId: row.assetId,
+              sessionId: row.sessionId,
+              etag: row.completionEtag,
+            }
+          : undefined;
       await uploader.upload(jobId, row.file, row.id, {
         signal: controller.signal,
+        completionCheckpoint,
         onProgress: (progress) =>
           update(row.id, { progress: progress.percent }),
-        onSession: (session: PhotoUploadSessionView) =>
-          update(row.id, {
+        onSession: (session: PhotoUploadSessionView) => {
+          const sameSession = row.sessionId === session.sessionId;
+          persistPatch(row, {
             sessionId: session.sessionId,
             assetId: session.assetId,
+            status:
+              session.status === "completed" ? "uploaded" : "uploading",
+            ...(session.status === "completed"
+              ? { progress: 100, completionEtag: undefined }
+              : sameSession
+                ? {}
+                : { completionEtag: undefined }),
+          });
+        },
+        onCompletionPending: (checkpoint) =>
+          persistPatch(row, {
+            assetId: checkpoint.assetId,
+            sessionId: checkpoint.sessionId,
+            completionEtag: checkpoint.etag,
+            progress: 100,
+            status: "uploading",
+          }),
+        onTerminal: (result) =>
+          persistPatch(row, {
+            assetId: result.assetId,
+            sessionId: result.sessionId,
+            completionEtag: undefined,
+            progress: 100,
+            status: "uploaded",
           }),
       });
       update(row.id, { status: "uploaded", progress: 100 });
@@ -195,6 +260,7 @@ export function PhotoUploader({
     if (row.sessionId && row.status !== "uploaded")
       await uploader.abort(jobId, row.sessionId).catch(() => undefined);
     if (row.assetId) await createPhotoClient().deleteAsset(jobId, row.assetId);
+    removePersistedRow(row.id);
     setRows((current) => current.filter((item) => item.id !== row.id));
     onChanged?.();
   }

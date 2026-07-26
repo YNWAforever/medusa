@@ -18,9 +18,21 @@ export interface UploadResult {
   assetId: string;
   sessionId: string;
 }
+export interface UploadCompletionCheckpoint {
+  assetId: string;
+  sessionId: string;
+  etag: string;
+}
 export interface UploadCallbacks {
   onProgress?: (progress: UploadProgress) => void;
-  onSession?: (session: PhotoUploadSessionView) => void;
+  onSession?: (
+    session: PhotoUploadSessionView,
+  ) => unknown;
+  completionCheckpoint?: UploadCompletionCheckpoint;
+  onCompletionPending?: (
+    checkpoint: UploadCompletionCheckpoint,
+  ) => unknown;
+  onTerminal?: (result: UploadResult) => unknown;
   signal?: AbortSignal;
 }
 export interface RestoredUpload {
@@ -261,8 +273,14 @@ export class MultipartUploader {
 
     while (true) {
       const { session, generation } = current;
-      if (session.status === "completed")
-        return { assetId: session.assetId, sessionId: session.sessionId };
+      if (session.status === "completed") {
+        const result = {
+          assetId: session.assetId,
+          sessionId: session.sessionId,
+        };
+        await callbacks.onTerminal?.(result);
+        return result;
+      }
 
       if (isSessionExpired(session)) {
         current = await this.findReplacement(
@@ -277,13 +295,14 @@ export class MultipartUploader {
       }
 
       try {
-        return await this.uploadSession(
+        const result = await this.uploadSession(
           jobId,
           file,
           session,
-          callbacks.onProgress ?? (() => {}),
-          callbacks.signal,
+          callbacks,
         );
+        await callbacks.onTerminal?.(result);
+        return result;
       } catch (error) {
         if (!isUploadExpiredError(error) && !isSessionExpired(session))
           throw error;
@@ -307,7 +326,7 @@ export class MultipartUploader {
     const session = await retry(() =>
       this.client.createUpload(jobId, input, callbacks.signal),
     );
-    callbacks.onSession?.(session);
+    await callbacks.onSession?.(session);
     return session;
   }
 
@@ -357,22 +376,35 @@ export class MultipartUploader {
     jobId: string,
     file: File,
     session: ActiveUploadSession,
-    onProgress: (progress: UploadProgress) => void,
-    signal?: AbortSignal,
+    callbacks: UploadCallbacks,
   ): Promise<UploadResult> {
     if (session.strategy === "single-put") {
-      const etag = await this.directPut(
-        session.uploadUrl,
-        file,
-        session.requiredHeaders,
-        onProgress,
-        signal,
-      );
+      const checkpoint = callbacks.completionCheckpoint;
+      const resumable =
+        checkpoint?.assetId === session.assetId &&
+        checkpoint.sessionId === session.sessionId &&
+        checkpoint.etag.trim().length > 0;
+      const etag = resumable
+        ? checkpoint.etag
+        : await this.directPut(
+            session.uploadUrl,
+            file,
+            session.requiredHeaders,
+            callbacks.onProgress ?? (() => {}),
+            callbacks.signal,
+          );
+      if (!resumable) {
+        await callbacks.onCompletionPending?.({
+          assetId: session.assetId,
+          sessionId: session.sessionId,
+          etag,
+        });
+      }
       await this.client.complete(
         jobId,
         session.sessionId,
         { strategy: "single-put", etag },
-        signal,
+        callbacks.signal,
       );
       return { assetId: session.assetId, sessionId: session.sessionId };
     }
@@ -381,8 +413,8 @@ export class MultipartUploader {
       jobId,
       file,
       session,
-      onProgress,
-      signal,
+      callbacks.onProgress ?? (() => {}),
+      callbacks.signal,
     );
   }
 

@@ -257,6 +257,152 @@ describe("single-PUT uploader", () => {
     expect(progress).toEqual([50, 100]);
   });
 
+  it("persists the ETag before completion and resumes the same active session without another PUT", async () => {
+    const createUpload = vi.fn(async () => ({
+      assetId: "asset_1",
+      sessionId: "session_1",
+      strategy: "single-put",
+      uploadUrl: "https://blob.invalid/signed",
+      requiredHeaders: { "content-type": "image/jpeg" },
+      status: "active",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }));
+    const complete = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("completion transport failed"))
+      .mockResolvedValueOnce(undefined);
+    const api = client({ createUpload, complete });
+    const directPut = vi.fn(async () => '"durable-etag"');
+    let checkpoint:
+      | { assetId: string; sessionId: string; etag: string }
+      | undefined;
+    const order: string[] = [];
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "stable-source",
+        {
+          onCompletionPending: (value) => {
+            order.push("persist");
+            checkpoint = value;
+          },
+        },
+      ),
+    ).rejects.toThrow("completion transport failed");
+
+    expect(checkpoint).toEqual({
+      assetId: "asset_1",
+      sessionId: "session_1",
+      etag: '"durable-etag"',
+    });
+    expect(order).toEqual(["persist"]);
+    expect(directPut).toHaveBeenCalledTimes(1);
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "stable-source",
+        {
+          completionCheckpoint: checkpoint,
+          onCompletionPending: () => {
+            throw new Error("must not checkpoint a second PUT");
+          },
+          onTerminal: () => {
+            order.push("terminal");
+            checkpoint = undefined;
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      assetId: "asset_1",
+      sessionId: "session_1",
+    });
+
+    expect(createUpload).toHaveBeenCalledTimes(2);
+    expect(
+      createUpload.mock.calls.map((call: unknown[]) =>
+        (call[1] as { sourceIdempotencyKey: string }).sourceIdempotencyKey
+      ),
+    ).toEqual(["stable-source", "stable-source"]);
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete.mock.calls.map((call: unknown[]) => call[2])).toEqual([
+      { strategy: "single-put", etag: '"durable-etag"' },
+      { strategy: "single-put", etag: '"durable-etag"' },
+    ]);
+    expect(order).toEqual(["persist", "terminal"]);
+    expect(checkpoint).toBeUndefined();
+  });
+
+  it("reconciles response-lost-after-commit and then clears the checkpoint", async () => {
+    let committed = false;
+    const createUpload = vi.fn(async () =>
+      committed
+        ? {
+            assetId: "asset_1",
+            sessionId: "session_1",
+            strategy: "single-put",
+            status: "completed",
+            expiresAt: new Date().toISOString(),
+          }
+        : {
+            assetId: "asset_1",
+            sessionId: "session_1",
+            strategy: "single-put",
+            uploadUrl: "https://blob.invalid/signed",
+            requiredHeaders: {},
+            status: "active",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          }
+    );
+    const complete = vi.fn(async () => {
+      committed = true;
+      throw new TypeError("response lost");
+    });
+    const api = client({ createUpload, complete });
+    const directPut = vi.fn(async () => '"committed-etag"');
+    let checkpoint:
+      | { assetId: string; sessionId: string; etag: string }
+      | undefined;
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "stable-source",
+        { onCompletionPending: (value) => { checkpoint = value; } },
+      ),
+    ).rejects.toThrow("response lost");
+
+    expect(checkpoint).toEqual({
+      assetId: "asset_1",
+      sessionId: "session_1",
+      etag: '"committed-etag"',
+    });
+
+    await expect(
+      new MultipartUploader(api, vi.fn() as any, directPut).upload(
+        "job_1",
+        file,
+        "stable-source",
+        {
+          completionCheckpoint: checkpoint,
+          onTerminal: () => { checkpoint = undefined; },
+        },
+      ),
+    ).resolves.toEqual({
+      assetId: "asset_1",
+      sessionId: "session_1",
+    });
+
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(checkpoint).toBeUndefined();
+  });
+
   it("replaces an already-expired session before sending provider bytes", async () => {
     const createUpload = vi
       .fn()
