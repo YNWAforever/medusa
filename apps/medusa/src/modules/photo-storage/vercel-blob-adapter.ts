@@ -21,6 +21,7 @@ const PREVIEW_KEY_PATTERN = /^photo-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{
 const MAX_UPLOAD_SIGNATURE_SECONDS = 900
 const MAX_READ_SIGNATURE_SECONDS = 300
 const MAX_PREFIX_BYTES = 64
+const MAX_DIRECT_UPLOAD_BYTES = 50 * 1024 * 1024
 
 export type BlobApi = {
   issueSignedToken: typeof issueSignedToken
@@ -56,6 +57,16 @@ function validatePreviewKey(key: string): void {
 function validateExpiry(expiresIn: number, maximum: number): void {
   if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > maximum) {
     throw new PhotoStorageError("photo_storage_invalid_expiry")
+  }
+}
+
+function validateDirectUploadBytes(bytes: number): void {
+  if (
+    !Number.isInteger(bytes)
+    || bytes < 1
+    || bytes > MAX_DIRECT_UPLOAD_BYTES
+  ) {
+    throw new PhotoStorageError("photo_storage_invalid_size")
   }
 }
 
@@ -144,6 +155,7 @@ export class VercelBlobPhotoStorageAdapter implements PhotoStorageAdapter {
   }): Promise<PhotoDirectUploadGrant> {
     validateKey(input.key)
     validateExpiry(input.expiresIn, MAX_UPLOAD_SIGNATURE_SECONDS)
+    validateDirectUploadBytes(input.maxBytes)
     const requestedValidUntil = Date.now() + input.expiresIn * 1000
     try {
       const signedToken = await this.api.issueSignedToken({

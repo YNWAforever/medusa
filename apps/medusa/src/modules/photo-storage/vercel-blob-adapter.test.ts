@@ -85,41 +85,63 @@ afterEach(() => {
 })
 
 describe("VercelBlobPhotoStorageAdapter", () => {
-  it("creates a short-lived private direct-upload grant", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-07-26T12:00:00.000Z"))
-    const { adapter, api } = setup()
+  it.each([1, 50 * 1024 * 1024])(
+    "creates a short-lived private direct-upload grant for %s bytes",
+    async (maxBytes) => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-07-26T12:00:00.000Z"))
+      const { adapter, api } = setup()
 
-    const grant = await adapter.createDirectUpload({
-      key,
-      contentType: "image/jpeg",
-      maxBytes: 50 * 1024 * 1024,
-      expiresIn: 900,
-    })
+      const grant = await adapter.createDirectUpload({
+        key,
+        contentType: "image/jpeg",
+        maxBytes,
+        expiresIn: 900,
+      })
 
-    expect(api.issueSignedToken).toHaveBeenCalledWith({
-      pathname: key,
-      operations: ["put"],
-      allowedContentTypes: ["image/jpeg"],
-      maximumSizeInBytes: 50 * 1024 * 1024,
-      validUntil: expect.any(Number),
-      token,
-    })
-    expect(api.presignUrl).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
+      expect(api.issueSignedToken).toHaveBeenCalledWith({
         pathname: key,
-        operation: "put",
-        access: "private",
-      }),
-    )
-    expect(grant).toEqual({
-      provider: "vercel-blob",
-      url: "https://blob.vercel-storage.com/presigned",
-      expiresAt: new Date(validUntil).toISOString(),
-      requiredHeaders: { "content-type": "image/jpeg" },
-    })
-  })
+        operations: ["put"],
+        allowedContentTypes: ["image/jpeg"],
+        maximumSizeInBytes: maxBytes,
+        validUntil: expect.any(Number),
+        token,
+      })
+      expect(api.presignUrl).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          pathname: key,
+          operation: "put",
+          access: "private",
+        }),
+      )
+      expect(grant).toEqual({
+        provider: "vercel-blob",
+        url: "https://blob.vercel-storage.com/presigned",
+        expiresAt: new Date(validUntil).toISOString(),
+        requiredHeaders: { "content-type": "image/jpeg" },
+      })
+    },
+  )
+
+  it.each([0, 1.5, 50 * 1024 * 1024 + 1])(
+    "rejects an invalid direct-upload byte limit of %s before signing",
+    async (maxBytes) => {
+      const { adapter, api } = setup()
+
+      await expect(
+        adapter.createDirectUpload({
+          key,
+          contentType: "image/jpeg",
+          maxBytes,
+          expiresIn: 900,
+        }),
+      ).rejects.toThrow("photo_storage_invalid_size")
+
+      expect(api.issueSignedToken).not.toHaveBeenCalled()
+      expect(api.presignUrl).not.toHaveBeenCalled()
+    },
+  )
 
   it("inspects private blob metadata", async () => {
     const { adapter, api } = setup()
