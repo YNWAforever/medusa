@@ -29,6 +29,32 @@ function event(
   );
 }
 
+function selectCleanupSessions<T extends { id: string }>(
+  retryable: T[],
+  active: T[],
+  batchSize: number,
+): T[] {
+  const limit = Math.max(0, Math.floor(batchSize));
+  const retryQuota = Math.floor(limit / 2);
+  const activeQuota = limit - retryQuota;
+  const selected: T[] = [];
+  const seen = new Set<string>();
+  const append = (candidates: T[]) => {
+    for (const candidate of candidates) {
+      if (selected.length >= limit) return;
+      if (seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      selected.push(candidate);
+    }
+  };
+
+  append(retryable.slice(0, retryQuota));
+  append(active.slice(0, activeQuota));
+  append(retryable.slice(retryQuota));
+  append(active.slice(activeQuota));
+  return selected;
+}
+
 export async function runPhotoUploadCleanup({
   service,
   storage,
@@ -37,22 +63,20 @@ export async function runPhotoUploadCleanup({
   batchSize = PHOTO_UPLOAD_CLEANUP_BATCH,
 }: Dependencies) {
   const summary = { expiredSessions: 0, deletedAssets: 0, failures: 0 };
-  const retryableSessions = await service.listPhotoUploadSessions(
+  const retryableSessions: any[] = await service.listPhotoUploadSessions(
     { status: "expired", aborted_at: null },
     { take: batchSize, order: { expires_at: "ASC" } },
   );
-  const remaining = Math.max(0, batchSize - retryableSessions.length);
-  const activeSessions = remaining
-    ? await service.listPhotoUploadSessions(
-        { status: "active", expires_at: { $lt: now } },
-        { take: remaining, order: { expires_at: "ASC" } },
-      )
-    : [];
-  const sessions = [...retryableSessions, ...activeSessions].slice(
-    0,
+  const activeSessions: any[] = await service.listPhotoUploadSessions(
+    { status: "active", expires_at: { $lt: now } },
+    { take: batchSize, order: { expires_at: "ASC" } },
+  );
+  const sessions = selectCleanupSessions(
+    retryableSessions,
+    activeSessions,
     batchSize,
   );
-  for (const session of sessions.slice(0, batchSize)) {
+  for (const session of sessions) {
     let asset: any;
     try {
       asset = await service.retrievePhotoAsset(session.asset_id);

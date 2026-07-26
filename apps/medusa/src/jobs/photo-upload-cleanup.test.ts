@@ -53,6 +53,40 @@ function useLegacyMultipart(f: ReturnType<typeof fixture>) {
   f.session.provider_upload_id = "provider-secret";
 }
 
+function cleanupCandidate(
+  f: ReturnType<typeof fixture>,
+  id: string,
+  status: "active" | "expired",
+) {
+  return {
+    ...f.session,
+    id,
+    asset_id: `asset_${id}`,
+    status,
+    expires_at: new Date("2026-07-26T00:00:00.000Z"),
+    ...(status === "expired" ? { aborted_at: null } : {}),
+  };
+}
+
+function useCleanupQueues(
+  f: ReturnType<typeof fixture>,
+  retryable: ReturnType<typeof cleanupCandidate>[],
+  active: ReturnType<typeof cleanupCandidate>[],
+) {
+  f.service.listPhotoUploadSessions.mockImplementation(async (filters) =>
+    filters.status === "expired"
+      ? retryable
+      : filters.status === "active"
+        ? active
+        : [],
+  );
+  f.service.retrievePhotoAsset.mockImplementation(async (assetId) => ({
+    ...f.asset,
+    id: assetId,
+    object_key: `private/${assetId}`,
+  }));
+}
+
 describe("photo upload cleanup", () => {
   it("claims s3 multipart sessions before provider abort", async () => {
     const f = fixture();
@@ -279,6 +313,134 @@ describe("photo upload cleanup", () => {
         }),
       }),
     );
+  });
+
+  it("reserves capacity for active stale sessions behind a full retry backlog", async () => {
+    const f = fixture();
+    const batchSize = 4;
+    const retryable = Array.from({ length: batchSize + 2 }, (_, index) =>
+      cleanupCandidate(f, `retry_${index}`, "expired"),
+    );
+    const active = Array.from({ length: batchSize }, (_, index) =>
+      cleanupCandidate(f, `active_${index}`, "active"),
+    );
+    useCleanupQueues(f, retryable, active);
+
+    await expect(
+      runPhotoUploadCleanup({ ...f, batchSize }),
+    ).resolves.toMatchObject({
+      expiredSessions: batchSize,
+      failures: 0,
+    });
+
+    expect(
+      f.service.retrievePhotoAsset.mock.calls.map(([assetId]) => assetId),
+    ).toEqual([
+      "asset_retry_0",
+      "asset_retry_1",
+      "asset_active_0",
+      "asset_active_1",
+    ]);
+    expect(
+      f.service.updatePhotoUploadSessions.mock.calls
+        .map(([input]) => input.selector)
+        .filter((selector) => selector.status === "active"),
+    ).toEqual([
+      { id: "active_0", status: "active" },
+      { id: "active_1", status: "active" },
+    ]);
+    expect(f.service.listPhotoUploadSessions).toHaveBeenCalledWith(
+      { status: "expired", aborted_at: null },
+      { take: batchSize, order: { expires_at: "ASC" } },
+    );
+    expect(f.service.listPhotoUploadSessions).toHaveBeenCalledWith(
+      { status: "active", expires_at: { $lt: expect.any(Date) } },
+      { take: batchSize, order: { expires_at: "ASC" } },
+    );
+  });
+
+  it("fills unused active quota from retry records", async () => {
+    const f = fixture();
+    const retryable = Array.from({ length: 6 }, (_, index) =>
+      cleanupCandidate(f, `retry_${index}`, "expired"),
+    );
+    const active = [cleanupCandidate(f, "active_0", "active")];
+    useCleanupQueues(f, retryable, active);
+
+    await expect(
+      runPhotoUploadCleanup({ ...f, batchSize: 4 }),
+    ).resolves.toMatchObject({
+      expiredSessions: 4,
+      failures: 0,
+    });
+
+    expect(
+      f.service.retrievePhotoAsset.mock.calls.map(([assetId]) => assetId),
+    ).toEqual([
+      "asset_retry_0",
+      "asset_retry_1",
+      "asset_active_0",
+      "asset_retry_2",
+    ]);
+  });
+
+  it("fills unused retry quota from active stale sessions", async () => {
+    const f = fixture();
+    const retryable = [cleanupCandidate(f, "retry_0", "expired")];
+    const active = Array.from({ length: 6 }, (_, index) =>
+      cleanupCandidate(f, `active_${index}`, "active"),
+    );
+    useCleanupQueues(f, retryable, active);
+
+    await expect(
+      runPhotoUploadCleanup({ ...f, batchSize: 4 }),
+    ).resolves.toMatchObject({
+      expiredSessions: 4,
+      failures: 0,
+    });
+
+    expect(
+      f.service.retrievePhotoAsset.mock.calls.map(([assetId]) => assetId),
+    ).toEqual([
+      "asset_retry_0",
+      "asset_active_0",
+      "asset_active_1",
+      "asset_active_2",
+    ]);
+  });
+
+  it("deduplicates candidates while filling the bounded batch", async () => {
+    const f = fixture();
+    const retryable = [
+      cleanupCandidate(f, "shared", "expired"),
+      cleanupCandidate(f, "retry_1", "expired"),
+      cleanupCandidate(f, "retry_2", "expired"),
+    ];
+    const active = [
+      cleanupCandidate(f, "shared", "active"),
+      cleanupCandidate(f, "active_1", "active"),
+      cleanupCandidate(f, "active_2", "active"),
+    ];
+    useCleanupQueues(f, retryable, active);
+
+    await expect(
+      runPhotoUploadCleanup({ ...f, batchSize: 4 }),
+    ).resolves.toMatchObject({
+      expiredSessions: 4,
+      failures: 0,
+    });
+
+    const processed = f.service.retrievePhotoAsset.mock.calls.map(
+      ([assetId]) => assetId,
+    );
+    expect(processed).toEqual([
+      "asset_shared",
+      "asset_retry_1",
+      "asset_active_1",
+      "asset_retry_2",
+    ]);
+    expect(new Set(processed)).toHaveLength(4);
+    expect(f.storage.delete).toHaveBeenCalledTimes(4);
   });
 
   it("bounds every candidate query", async () => {
