@@ -40,9 +40,33 @@ export interface PhotoJobView {
   active_version?: PhotoActiveVersionView | null
   assets?: PhotoAssetView[]
 }
-export interface PhotoUploadSessionView { assetId: string; sessionId: string; partSize: number; status: string; expiresAt: string }
+
+type PhotoUploadSessionBase = {
+  assetId: string
+  sessionId: string
+  status: string
+  expiresAt: string
+}
+
+export type PhotoUploadSessionView =
+  | PhotoUploadSessionBase & {
+      strategy: "single-put"
+      uploadUrl: string
+      requiredHeaders: Record<string, string>
+      partSize?: never
+    }
+  | PhotoUploadSessionBase & {
+      strategy: "multipart"
+      partSize: number
+      uploadUrl?: never
+      requiredHeaders?: never
+    }
+
 export interface SignedUploadPart { url: string; requiredHeaders: Record<string, string> }
 export interface UploadedPart { partNumber: number; etag: string; checksumCRC32C: string }
+export type PhotoUploadCompletion =
+  | { strategy: "single-put"; etag: string }
+  | { strategy: "multipart"; parts: UploadedPart[] }
 export type PhotoErrorCode = "photo_job_not_found" | "photo_job_conflict" | "photo_job_unavailable" | "photo_upload_expired" | "photo_upload_not_active" | "photo_file_too_large" | "photo_asset_limit_exceeded" | "photo_job_bytes_exceeded" | "photo_upload_failed"
 export class PhotoClientError extends Error { constructor(public readonly code: PhotoErrorCode | string, public readonly status = 0) { super(code); this.name = "PhotoClientError" } }
 export type RecoveryAction = "retry" | "replace-session" | "remove" | "reload"

@@ -99,10 +99,108 @@ async function retry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
 async function signature(file: File): Promise<string> {
   return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
 }
+export type DirectPut = (
+  url: string,
+  file: File,
+  headers: Record<string, string>,
+  onProgress: (progress: UploadProgress) => void,
+  signal?: AbortSignal,
+) => Promise<string>;
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+export const putFileWithProgress: DirectPut = (
+  url,
+  file,
+  headers,
+  onProgress,
+  signal,
+) => {
+  if (signal?.aborted) return Promise.reject(abortError());
+
+  return new Promise<string>((resolve, reject) => {
+    let xhr: XMLHttpRequest;
+    try {
+      xhr = new XMLHttpRequest();
+    } catch {
+      reject(new PhotoClientError("photo_upload_failed"));
+      return;
+    }
+
+    let settled = false;
+    let uploadedBytes = 0;
+    const cleanup = () => signal?.removeEventListener("abort", onSignalAbort);
+    const settle = (result: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      result();
+    };
+    const fail = () =>
+      settle(() => reject(new PhotoClientError("photo_upload_failed", xhr.status)));
+    const emitProgress = (loaded: number) => {
+      uploadedBytes = Math.max(
+        uploadedBytes,
+        Math.min(file.size, Math.max(0, loaded)),
+      );
+      onProgress({
+        uploadedBytes,
+        totalBytes: file.size,
+        percent: file.size
+          ? Math.round((uploadedBytes / file.size) * 100)
+          : 100,
+      });
+    };
+    function onSignalAbort() {
+      if (settled) return;
+      xhr.abort();
+      settle(() => reject(abortError()));
+    }
+
+    signal?.addEventListener("abort", onSignalAbort, { once: true });
+    xhr.upload.onprogress = (event) => {
+      if (settled) return;
+      try {
+        emitProgress(event.loaded);
+      } catch {
+        fail();
+      }
+    };
+    xhr.onload = () => {
+      const etag = xhr.getResponseHeader("ETag")?.trim();
+      if (xhr.status < 200 || xhr.status >= 300 || !etag) {
+        fail();
+        return;
+      }
+      try {
+        if (uploadedBytes < file.size || file.size === 0) emitProgress(file.size);
+      } catch {
+        fail();
+        return;
+      }
+      settle(() => resolve(etag));
+    };
+    xhr.onerror = fail;
+    xhr.ontimeout = fail;
+    xhr.onabort = () => settle(() => reject(abortError()));
+
+    try {
+      xhr.open("PUT", url);
+      for (const [name, value] of Object.entries(headers))
+        xhr.setRequestHeader(name, value);
+      xhr.send(file);
+    } catch {
+      fail();
+    }
+  });
+};
 export class MultipartUploader {
   constructor(
     private readonly client: PhotoClient,
     private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+    private readonly directPut: DirectPut = putFileWithProgress,
   ) {}
   async upload(
     jobId: string,
@@ -170,6 +268,39 @@ export class MultipartUploader {
     onProgress: (progress: UploadProgress) => void,
     signal?: AbortSignal,
   ): Promise<UploadResult> {
+    if (session.strategy === "single-put") {
+      const etag = await this.directPut(
+        session.uploadUrl,
+        file,
+        session.requiredHeaders,
+        onProgress,
+        signal,
+      );
+      await this.client.complete(
+        jobId,
+        session.sessionId,
+        { strategy: "single-put", etag },
+        signal,
+      );
+      return { assetId: session.assetId, sessionId: session.sessionId };
+    }
+
+    return this.uploadMultipartSession(
+      jobId,
+      file,
+      session,
+      onProgress,
+      signal,
+    );
+  }
+
+  private async uploadMultipartSession(
+    jobId: string,
+    file: File,
+    session: Extract<PhotoUploadSessionView, { strategy: "multipart" }>,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<UploadResult> {
     const parts: UploadedPart[] = [];
     let uploadedBytes = 0;
     for (
@@ -203,7 +334,7 @@ export class MultipartUploader {
         }),
       );
       const etag = response.headers.get("etag");
-      if (!etag) throw new PhotoClientError("photo_upload_failed");
+      if (!etag?.trim()) throw new PhotoClientError("photo_upload_failed");
       parts.push({ partNumber, etag, checksumCRC32C });
       uploadedBytes += blob.size;
       onProgress({
@@ -214,7 +345,12 @@ export class MultipartUploader {
           : 100,
       });
     }
-    await this.client.complete(jobId, session.sessionId, parts, signal);
+    await this.client.complete(
+      jobId,
+      session.sessionId,
+      { strategy: "multipart", parts },
+      signal,
+    );
     return { assetId: session.assetId, sessionId: session.sessionId };
   }
 }

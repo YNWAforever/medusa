@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PhotoClientError } from "./contracts";
 import {
   crc32cBase64,
   MultipartUploader,
+  putFileWithProgress,
   restoreUploads,
   validateSelection,
 } from "./uploader";
@@ -13,6 +14,7 @@ function client(overrides: Record<string, unknown> = {}) {
     createUpload: vi.fn(async () => ({
       assetId: "asset_1",
       sessionId: "session_1",
+      strategy: "multipart",
       partSize: 6,
       status: "active",
       expiresAt: new Date(Date.now() + 1000).toISOString(),
@@ -190,5 +192,231 @@ describe("MultipartUploader", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(put).toHaveBeenCalledTimes(1);
     expect(api.complete).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("single-PUT uploader", () => {
+  it("sends the whole File exactly once and completes with the provider ETag", async () => {
+    const api = client({
+      createUpload: vi.fn(async () => ({
+        assetId: "asset_1",
+        sessionId: "session_1",
+        strategy: "single-put",
+        uploadUrl: "https://blob.invalid/signed",
+        requiredHeaders: { "content-type": "image/jpeg" },
+        status: "active",
+        expiresAt: new Date(Date.now() + 1000).toISOString(),
+      })),
+    });
+    const multipartPut = vi.fn();
+    const progress: number[] = [];
+    const directPut = vi.fn(async (
+      url: string,
+      body: File,
+      headers: Record<string, string>,
+      onProgress: (value: { uploadedBytes: number; totalBytes: number; percent: number }) => void,
+    ) => {
+      expect(url).toBe("https://blob.invalid/signed");
+      expect(body).toBe(file);
+      expect(headers).toEqual({ "content-type": "image/jpeg" });
+      onProgress({ uploadedBytes: 6, totalBytes: 12, percent: 50 });
+      onProgress({ uploadedBytes: 12, totalBytes: 12, percent: 100 });
+      return '"blob-etag"';
+    });
+
+    await new MultipartUploader(api, multipartPut as any, directPut).upload(
+      "job_1",
+      file,
+      "source_1",
+      { onProgress: (value) => progress.push(value.percent) },
+    );
+
+    expect(directPut).toHaveBeenCalledTimes(1);
+    expect(api.signPart).not.toHaveBeenCalled();
+    expect(multipartPut).not.toHaveBeenCalled();
+    expect(api.complete).toHaveBeenCalledWith(
+      "job_1",
+      "session_1",
+      { strategy: "single-put", etag: '"blob-etag"' },
+      undefined,
+    );
+    expect(progress).toEqual([50, 100]);
+  });
+
+  it("retains the CRC32C multipart completion path", async () => {
+    const api = client();
+    const multipartPut = vi.fn(async () =>
+      new Response(null, { status: 200, headers: { etag: "part-etag" } }),
+    );
+
+    await new MultipartUploader(api, multipartPut as any, vi.fn()).upload(
+      "job_1",
+      file,
+      "source_1",
+    );
+
+    expect(api.complete).toHaveBeenCalledWith(
+      "job_1",
+      "session_1",
+      {
+        strategy: "multipart",
+        parts: [
+          { partNumber: 1, etag: "part-etag", checksumCRC32C: expect.any(String) },
+          { partNumber: 2, etag: "part-etag", checksumCRC32C: expect.any(String) },
+        ],
+      },
+      undefined,
+    );
+  });
+});
+
+type ProgressHandler = ((event: { loaded: number; total: number }) => void) | null;
+type EventHandler = (() => void) | null;
+
+class FakeXMLHttpRequest {
+  static instances: FakeXMLHttpRequest[] = [];
+  readonly upload = { onprogress: null as ProgressHandler };
+  readonly open = vi.fn();
+  readonly setRequestHeader = vi.fn();
+  readonly send = vi.fn();
+  readonly abort = vi.fn(() => this.onabort?.());
+  status = 0;
+  etag: string | null = null;
+  onload: EventHandler = null;
+  onerror: EventHandler = null;
+  ontimeout: EventHandler = null;
+  onabort: EventHandler = null;
+
+  constructor() {
+    FakeXMLHttpRequest.instances.push(this);
+  }
+
+  getResponseHeader(name: string): string | null {
+    return name.toLowerCase() === "etag" ? this.etag : null;
+  }
+}
+
+describe("putFileWithProgress", () => {
+  afterEach(() => {
+    FakeXMLHttpRequest.instances = [];
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("sets only required headers, sends once, and reports monotonic progress", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const progress: Array<{ uploadedBytes: number; totalBytes: number; percent: number }> = [];
+
+    const result = putFileWithProgress(
+      "https://blob.invalid/signed",
+      file,
+      { "content-type": "image/jpeg", "x-required": "signed-value" },
+      (value) => progress.push(value),
+      controller.signal,
+    );
+    const xhr = FakeXMLHttpRequest.instances[0]!;
+    xhr.upload.onprogress?.({ loaded: 6, total: 12 });
+    xhr.upload.onprogress?.({ loaded: 3, total: 12 });
+    xhr.upload.onprogress?.({ loaded: 12, total: 12 });
+    xhr.status = 201;
+    xhr.etag = '"blob-etag"';
+    xhr.onload?.();
+
+    await expect(result).resolves.toBe('"blob-etag"');
+    expect(xhr.open).toHaveBeenCalledWith("PUT", "https://blob.invalid/signed");
+    expect(xhr.setRequestHeader.mock.calls).toEqual([
+      ["content-type", "image/jpeg"],
+      ["x-required", "signed-value"],
+    ]);
+    expect(xhr.send).toHaveBeenCalledTimes(1);
+    expect(xhr.send).toHaveBeenCalledWith(file);
+    expect(progress.map((value) => value.uploadedBytes)).toEqual([6, 6, 12]);
+    expect(progress.map((value) => value.percent)).toEqual([50, 50, 100]);
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { status: 204, etag: " " },
+    { status: 500, etag: '"blob-etag"' },
+  ])("rejects invalid status or ETag with the stable failure code", async ({ status, etag }) => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const result = putFileWithProgress(
+      "https://blob.invalid/signed",
+      file,
+      {},
+      vi.fn(),
+      controller.signal,
+    );
+    const xhr = FakeXMLHttpRequest.instances[0]!;
+    xhr.status = status;
+    xhr.etag = etag;
+    xhr.onload?.();
+
+    await expect(result).rejects.toMatchObject({ code: "photo_upload_failed" });
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["onerror", "ontimeout"] as const)(
+    "rejects %s and removes the abort listener",
+    async (eventName) => {
+      vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+      const controller = new AbortController();
+      const remove = vi.spyOn(controller.signal, "removeEventListener");
+      const result = putFileWithProgress(
+        "https://blob.invalid/signed",
+        file,
+        {},
+        vi.fn(),
+        controller.signal,
+      );
+      const xhr = FakeXMLHttpRequest.instances[0]!;
+      xhr[eventName]?.();
+
+      await expect(result).rejects.toMatchObject({ code: "photo_upload_failed" });
+      expect(remove).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("rejects an already-aborted signal without starting an XHR", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(putFileWithProgress(
+      "https://blob.invalid/signed",
+      file,
+      {},
+      vi.fn(),
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(FakeXMLHttpRequest.instances).toHaveLength(0);
+  });
+
+  it("aborts mid-flight once and removes the listener before later events", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const result = putFileWithProgress(
+      "https://blob.invalid/signed",
+      file,
+      {},
+      vi.fn(),
+      controller.signal,
+    );
+    const xhr = FakeXMLHttpRequest.instances[0]!;
+
+    controller.abort();
+    xhr.status = 200;
+    xhr.etag = '"late-etag"';
+    xhr.onload?.();
+
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+    expect(xhr.abort).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 });

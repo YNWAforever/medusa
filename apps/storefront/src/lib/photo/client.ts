@@ -1,9 +1,9 @@
 import {
   PhotoClientError,
   type PhotoJobView,
+  type PhotoUploadCompletion,
   type PhotoUploadSessionView,
   type SignedUploadPart,
-  type UploadedPart,
 } from "./contracts";
 
 type Fetcher = typeof fetch;
@@ -105,16 +105,19 @@ export function createPhotoClient(fetcher: Fetcher = fetch) {
     async complete(
       jobId: string,
       sessionId: string,
-      parts: UploadedPart[],
+      completion: PhotoUploadCompletion,
       signal?: AbortSignal,
     ): Promise<void> {
+      const body = completion.strategy === "single-put"
+        ? { etag: completion.etag }
+        : { parts: completion.parts };
       await json(
         fetcher,
         `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/complete`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ parts }),
+          body: JSON.stringify(body),
           signal,
         },
       );
