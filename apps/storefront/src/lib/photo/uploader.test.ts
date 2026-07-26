@@ -686,6 +686,26 @@ describe("putFileWithProgress", () => {
       { uploadedBytes: 1000, totalBytes: 1000, percent: 100 },
     ]);
   });
+  it.each([401, 403])(
+    "maps a signed direct-PUT %s response to an expired grant",
+    async (status) => {
+      vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+      const result = putFileWithProgress(
+        "https://blob.invalid/expired",
+        file,
+        {},
+        vi.fn(),
+      );
+      const xhr = FakeXMLHttpRequest.instances[0]!;
+      xhr.status = status;
+      xhr.onload?.();
+
+      await expect(result).rejects.toMatchObject({
+        code: "photo_upload_expired",
+        status,
+      });
+    },
+  );
   it.each([
     { status: 204, etag: " " },
     { status: 500, etag: '"blob-etag"' },

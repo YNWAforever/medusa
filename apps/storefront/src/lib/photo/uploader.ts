@@ -168,7 +168,12 @@ export const putFileWithProgress: DirectPut = (
       result();
     };
     const fail = () =>
-      settle(() => reject(new PhotoClientError("photo_upload_failed", xhr.status)));
+      settle(() => reject(new PhotoClientError(
+        xhr.status === 401 || xhr.status === 403
+          ? "photo_upload_expired"
+          : "photo_upload_failed",
+        xhr.status,
+      )));
     const emitProgress = (loaded: number) => {
       uploadedBytes = Math.max(
         uploadedBytes,

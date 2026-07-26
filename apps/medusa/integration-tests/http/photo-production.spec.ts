@@ -31,6 +31,7 @@ const env = {
   AUTH_CORS: "http://localhost:3100",
   JWT_SECRET: "fotomax-local-jwt-secret",
   COOKIE_SECRET: "fotomax-local-cookie-secret",
+  PHOTO_STORAGE_PROVIDER: "s3",
   PHOTO_STORAGE_ENDPOINT: process.env.PHOTO_STORAGE_ENDPOINT ?? "http://localhost:9002",
   PHOTO_STORAGE_REGION: "us-east-1",
   PHOTO_STORAGE_BUCKET: "fotomax-photo-private",
@@ -44,19 +45,6 @@ type ImageFormat = "jpeg" | "png" | "webp"
 
 function record(value: unknown): Record<string, any> {
   return value && typeof value === "object" ? value as Record<string, any> : {}
-}
-
-function crc32c(bytes: Buffer): string {
-  let crc = 0xffffffff
-  for (const byte of bytes) {
-    crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0x82f63b78 : 0)
-    }
-  }
-  const output = Buffer.alloc(4)
-  output.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
-  return output.toString("base64")
 }
 
 async function generatedImage(format: ImageFormat): Promise<Buffer> {
@@ -111,31 +99,58 @@ medusaIntegrationTestRunner({
       return { job: record(response.data.photo_job), headers }
     }
 
-    async function upload(jobId: string, headers: Record<string, string>, bytes: Buffer, filename: string, mime: string) {
-      const checksumCRC32C = crc32c(bytes)
-      const started = await options.api.post(`/store/photo-jobs/${jobId}/uploads`, {
-        filename,
-        reportedMime: mime,
-        bytes: bytes.length,
-        sourceIdempotencyKey: randomUUID(),
-        signatureBase64: bytes.subarray(0, 64).toString("base64"),
-      }, { headers })
+    async function upload(
+      jobId: string,
+      headers: Record<string, string>,
+      bytes: Buffer,
+      filename: string,
+      mime: string,
+    ) {
+      const started = await options.api.post(
+        `/store/photo-jobs/${jobId}/uploads`,
+        {
+          filename,
+          reportedMime: mime,
+          bytes: bytes.length,
+          sourceIdempotencyKey: randomUUID(),
+          signatureBase64: bytes.subarray(0, 64).toString("base64"),
+        },
+        { headers },
+      )
       const session = record(started.data.upload)
-      const signed = await options.api.post(`/store/photo-jobs/${jobId}/uploads/${session.sessionId}/parts`, {
-        partNumber: 1,
-        checksumCRC32C,
-      }, { headers })
-      const part = record(signed.data.part)
-      const put = await fetch(part.url, { method: "PUT", headers: part.requiredHeaders, body: bytes as any })
+      expect(session).toMatchObject({
+        strategy: "single-put",
+        uploadUrl: expect.any(String),
+        requiredHeaders: { "content-type": mime },
+      })
+      const put = await fetch(String(session.uploadUrl), {
+        method: "PUT",
+        headers: record(session.requiredHeaders) as Record<string, string>,
+        body: bytes as any,
+      })
       expect(put.status).toBe(200)
       const etag = put.headers.get("etag")
-      expect(etag).toBeTruthy()
-      const completed = await options.api.post(`/store/photo-jobs/${jobId}/uploads/${session.sessionId}/complete`, {
-        parts: [{ partNumber: 1, etag, checksumCRC32C }],
-      }, { headers })
-      return { assetId: record(completed.data.asset).id as string, sessionId: session.sessionId as string }
+      expect(etag).toEqual(expect.any(String))
+      const completionPath =
+        `/store/photo-jobs/${jobId}/uploads/${session.sessionId}/complete`
+      const completed = await options.api.post(
+        completionPath,
+        { etag },
+        { headers },
+      )
+      const replay = await options.api.post(
+        completionPath,
+        { etag },
+        { headers },
+      )
+      const assetId = record(completed.data.asset).id as string
+      expect(record(replay.data.asset).id).toBe(assetId)
+      return {
+        assetId,
+        sessionId: session.sessionId as string,
+        etag: etag as string,
+      }
     }
-
     describe("photo production journey", () => {
       it("processes generated JPEG, PNG, and WebP files and blocks duplicates and corrupt images", async () => {
         const { job, headers } = await createJob()
@@ -209,6 +224,40 @@ medusaIntegrationTestRunner({
         const source = await generatedImage("jpeg")
         const uploaded = await upload(job.id, headers, source, "mixed-order.jpg", "image/jpeg")
         const asset = await waitForAsset(options, uploaded.assetId, ["ready"])
+        expect(asset.storage_provider).toBe("s3")
+        const storage: any = options.getContainer().resolve(PHOTO_STORAGE_MODULE)
+        const originalRef = {
+          provider: asset.storage_provider,
+          key: asset.object_key,
+        }
+        await expect(storage.inspect(originalRef)).resolves.toEqual({
+          bytes: source.length,
+          contentType: "image/jpeg",
+          etag: uploaded.etag,
+        })
+        const otherHeaders = {
+          ...headers,
+          "x-fotomax-guest-token": randomBytes(32).toString("base64url"),
+        }
+        await expect(options.api.get(
+          `/store/photo-jobs/${job.id}/assets/${asset.id}/preview`,
+          { headers: otherHeaders },
+        )).rejects.toMatchObject({ response: { status: 404 } })
+        const preview = await options.api.get(
+          `/store/photo-jobs/${job.id}/assets/${asset.id}/preview`,
+          {
+            headers,
+            maxRedirects: 0,
+            validateStatus: (status: number) => status === 302,
+          },
+        )
+        expect(preview).toMatchObject({
+          status: 302,
+          headers: {
+            location: expect.any(String),
+            "cache-control": "private, no-store",
+          },
+        })
         const service: any = options.getContainer().resolve(PHOTO_PRODUCTION_MODULE)
         const currentJob = await service.retrievePhotoJob(job.id)
         const versionResponse = await options.api.post(`/store/photo-jobs/${job.id}/versions`, {
@@ -346,8 +395,19 @@ medusaIntegrationTestRunner({
         const persistedOrder = record(orderQuery.data[0])
         expect(persistedOrder.id).toBe(orderId)
         const orderItems = Array.isArray(persistedOrder.items) ? persistedOrder.items.map(record) : []
-        expect(orderItems.some((line) => record(line.metadata).photo_job_version_id === version.id
-          && record(line.metadata).photo_manifest_digest === deliveryQuote.manifestDigest)).toBe(true)
+        const photoOrderItems = orderItems.filter(
+          (line) => record(line.metadata).photo_job_version_id === version.id
+            && record(line.metadata).photo_manifest_digest
+              === deliveryQuote.manifestDigest,
+        )
+        expect(photoOrderItems).toHaveLength(1)
+        const versionLinks = await query.graph({
+          entity: "photo_job_version",
+          fields: ["id", "order.id", "order_line_items.id"],
+          filters: { id: version.id },
+        })
+        expect(versionLinks.data).toHaveLength(1)
+        expect(record(versionLinks.data[0]).order_line_items).toHaveLength(1)
 
         const frozenVersion = await service.retrievePhotoJobVersion(version.id)
         const orderedJob = await service.retrievePhotoJob(job.id)
@@ -371,6 +431,11 @@ medusaIntegrationTestRunner({
         })
         expect(JSON.stringify(manifestPayload)).not.toMatch(/object_key|preview_key/i)
 
+        await expect(options.api.post(
+          `/admin/photo-jobs/${job.id}/assets/${asset.id}/access`,
+          { reason: "production" },
+        )).rejects.toMatchObject({ response: { status: 401 } })
+
         let accessPayload: any
         let cacheControl = ""
         await requestAdminAssetAccess({
@@ -386,6 +451,11 @@ medusaIntegrationTestRunner({
         } as any)
         expect(cacheControl).toBe("no-store")
         expect(record(accessPayload.access).url).toMatch(/^http:\/\/localhost:9002\//)
+        const original = await fetch(String(record(accessPayload.access).url))
+        expect(original.status).toBe(200)
+        expect(original.headers.get("content-type")).toBe("image/jpeg")
+        expect(original.headers.get("etag")).toBe(uploaded.etag)
+        expect(Buffer.from(await original.arrayBuffer())).toEqual(source)
         const audits = await service.listPhotoAssetAccessAudits({ asset_id: asset.id })
         expect(audits).toEqual(expect.arrayContaining([
           expect.objectContaining({
@@ -405,8 +475,13 @@ medusaIntegrationTestRunner({
         const storage: any = options.getContainer().resolve(PHOTO_STORAGE_MODULE)
         const originalKey = String(ready.object_key)
         const previewKey = String(ready.preview_key)
-        await expect(storage.headPrivateObject(originalKey)).resolves.toBeTruthy()
-        await expect(storage.readPrivateObjectPrefix(previewKey, 1)).resolves.toHaveLength(1)
+        expect(ready.storage_provider).toBe("s3")
+        expect(ready.provider_etag).toBe(uploaded.etag)
+        await expect(storage.inspect({ provider: ready.storage_provider, key: originalKey })).resolves.toMatchObject({
+          contentType: "image/jpeg",
+          etag: ready.provider_etag,
+        })
+        await expect(storage.readPrefix({ provider: ready.storage_provider, key: previewKey }, 1)).resolves.toHaveLength(1)
 
         const now = new Date()
         await service.updatePhotoJobs({
@@ -430,8 +505,8 @@ medusaIntegrationTestRunner({
           deletedAssets: 1,
           failures: 0,
         })
-        await expect(storage.headPrivateObject(originalKey)).rejects.toThrow("photo_storage_not_found")
-        await expect(storage.headPrivateObject(previewKey)).rejects.toThrow("photo_storage_not_found")
+        await expect(storage.inspect({ provider: ready.storage_provider, key: originalKey })).rejects.toThrow("photo_storage_not_found")
+        await expect(storage.inspect({ provider: ready.storage_provider, key: previewKey })).rejects.toThrow("photo_storage_not_found")
         await expect(service.retrievePhotoJob(job.id)).resolves.toMatchObject({ status: "expired" })
         await expect(service.retrievePhotoAsset(ready.id)).resolves.toMatchObject({
           status: "deleted",

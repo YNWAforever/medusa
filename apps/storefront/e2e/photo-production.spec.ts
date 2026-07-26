@@ -62,7 +62,22 @@ async function mockPhotoProduction(page: Page) {
   const preview = await generatedJpeg();
   let attached = false;
   let uploadCount = 0;
-  const sessions = new Map<string, { assetId: string; filename: string }>();
+  const sessions = new Map<string, {
+    assetId: string;
+    expired: boolean;
+    filename: string;
+  }>();
+  const uploadBodies: Array<{
+    filename: string;
+    sourceIdempotencyKey: string;
+  }> = [];
+  const putRequests: Array<{
+    body: Buffer;
+    contentType: string | null;
+    expired: boolean;
+    filename: string;
+  }> = [];
+  const completionBodies: Record<string, unknown>[] = [];
   const versionBodies: Record<string, unknown>[] = [];
   const job: any = {
     id: "job_1",
@@ -97,31 +112,66 @@ async function mockPhotoProduction(page: Page) {
   await page.route("**/api/photo-jobs/job_1/assets/*/preview", (route) =>
     route.fulfill({ status: 200, contentType: "image/jpeg", body: preview }),
   );
-await page.route("**/api/photo-jobs/job_1/uploads", async (route) => {
+  await page.route("**/api/photo-jobs/job_1/uploads", async (route) => {
     uploadCount += 1;
-    const input = await route.request().postDataJSON() as { filename: string };
+    const input = await route.request().postDataJSON() as {
+      filename: string;
+      sourceIdempotencyKey: string;
+    };
+    uploadBodies.push(input);
+    const generatedAttempt = uploadBodies.filter(
+      (body) => body.filename === "generated-device-photo.jpg",
+    ).length;
+    const expired = input.filename === "generated-device-photo.jpg"
+      && generatedAttempt === 1;
     const assetId = `asset_upload_${uploadCount}`;
     const sessionId = `session_${uploadCount}`;
-    sessions.set(sessionId, { assetId, filename: input.filename });
+    sessions.set(sessionId, { assetId, expired, filename: input.filename });
     return route.fulfill({
       json: {
         upload: {
           assetId,
           sessionId,
-          partSize: preview.length + 1,
+          strategy: "single-put",
+          uploadUrl: expired
+            ? `/signed/photo-put-expired/${sessionId}`
+            : `/signed/photo-put/${sessionId}`,
+          requiredHeaders: { "content-type": "image/jpeg" },
           status: "active",
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          expiresAt: new Date(
+            Date.now() + (expired ? -1_000 : 60_000),
+          ).toISOString(),
         },
       },
     });
   });
-  await page.route("**/api/photo-jobs/job_1/uploads/session_*/parts", (route) =>
-    route.fulfill({ json: { part: { url: "/signed/photo-part", requiredHeaders: {} } } }),
+  await page.route("**/signed/photo-put*/**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const sessionId = pathname.split("/").at(-1) ?? "";
+    const upload = sessions.get(sessionId)!;
+    putRequests.push({
+      body: route.request().postDataBuffer() ?? Buffer.alloc(0),
+      contentType: await route.request().headerValue("content-type"),
+      expired: upload.expired,
+      filename: upload.filename,
+    });
+    return route.fulfill(
+      upload.expired
+        ? { status: 403 }
+        : {
+            status: 200,
+            headers: { etag: `"generated-etag-${sessionId}"` },
+          },
+    );
+  });
+  await page.route(
+    "**/api/photo-jobs/job_1/uploads/session_*/abort",
+    (route) => route.fulfill({ json: { upload: { status: "aborted" } } }),
   );
-  await page.route("**/signed/photo-part", (route) =>
-    route.fulfill({ status: 200, headers: { etag: '"generated-etag"' } }),
-  );
-  await page.route("**/api/photo-jobs/job_1/uploads/session_*/complete", (route) => {
+  await page.route("**/api/photo-jobs/job_1/uploads/session_*/complete", async (route) => {
+    completionBodies.push(
+      await route.request().postDataJSON() as Record<string, unknown>,
+    );
     const sessionId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
     const upload = sessions.get(sessionId)!;
     if (upload.filename === "replace-me.jpg") {
@@ -166,7 +216,13 @@ await page.route("**/api/photo-jobs/job_1/uploads", async (route) => {
     route.fulfill({ json: { cart: attached ? mixedCart : emptyCart } }),
   );
 
-  return { preview, versionBodies };
+  return {
+    completionBodies,
+    preview,
+    putRequests,
+    uploadBodies,
+    versionBodies,
+  };
 }
 
 for (const locale of ["en", "zh-HK"] as const) {
@@ -179,7 +235,13 @@ for (const locale of ["en", "zh-HK"] as const) {
     page.on("response", (response) => {
       if (response.url().includes("/preview") && !response.ok()) failedPreviews.push(response.url());
     });
-    const { preview, versionBodies } = await mockPhotoProduction(page);
+    const {
+      completionBodies,
+      preview,
+      putRequests,
+      uploadBodies,
+      versionBodies,
+    } = await mockPhotoProduction(page);
 
     await page.goto(`/photo-upload-e2e?locale=${locale}`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
@@ -196,6 +258,18 @@ for (const locale of ["en", "zh-HK"] as const) {
     await expect(page.getByText(locale === "en" ? "Uploaded" : "已上載").last()).toBeVisible();
     await expect(page.getByRole("progressbar", { name: `generated-device-photo.jpg: ${locale === "en" ? "Uploaded" : "已上載"}` }))
       .toHaveJSProperty("value", 100);
+    const generatedAttempts = uploadBodies.filter(
+      (body) => body.filename === "generated-device-photo.jpg",
+    );
+    expect(generatedAttempts).toHaveLength(2);
+    expect(generatedAttempts[1].sourceIdempotencyKey).toBe(
+      `${generatedAttempts[0].sourceIdempotencyKey}:replacement:1`,
+    );
+    expect(
+      putRequests
+        .filter((request) => request.filename === "generated-device-photo.jpg")
+        .map((request) => request.expired),
+    ).toEqual([false]);
 
     const retryPicker = page.locator('.photo-retry-picker input[type="file"]');
     await retryPicker.setInputFiles({
@@ -205,6 +279,13 @@ for (const locale of ["en", "zh-HK"] as const) {
     });
     await expect(page.getByRole("progressbar", { name: `replace-me.jpg: ${locale === "en" ? "Uploaded" : "已上載"}` }))
       .toHaveJSProperty("value", 100);
+    expect(putRequests.every((request) =>
+      request.contentType === "image/jpeg" && request.body.equals(preview)
+    )).toBe(true);
+    expect(completionBodies).toEqual([
+      { etag: expect.stringMatching(/^"generated-etag-session_\d+"$/) },
+      { etag: expect.stringMatching(/^"generated-etag-session_\d+"$/) },
+    ]);
 
     await page.getByRole("button", { name: locale === "en" ? "Select ready" : "選擇可沖印" }).click();
     const cropGroup = page.getByRole("group", { name: locale === "en" ? "Crop mode" : "裁切模式" });
