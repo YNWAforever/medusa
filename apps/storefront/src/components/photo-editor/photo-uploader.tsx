@@ -1,0 +1,399 @@
+"use client";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, RefreshCw, Trash2, UploadCloud } from "lucide-react";
+import type { Locale } from "@fotomax/shared";
+import type {
+  PhotoAssetView,
+  PhotoUploadSessionView,
+} from "../../lib/photo/contracts";
+import { createPhotoClient } from "../../lib/photo/client";
+import {
+  MultipartUploader,
+  restoreUploads,
+  validateSelection,
+} from "../../lib/photo/uploader";
+type RowStatus = "queued" | "uploading" | "uploaded" | "failed";
+type QueueRow = {
+  id: string;
+  name: string;
+  bytes: number;
+  status: RowStatus;
+  progress: number;
+  file?: File;
+  sessionId?: string;
+  assetId?: string;
+  completionEtag?: string;
+  error?: string;
+};
+const labels = {
+  en: {
+    add: "Add photos",
+    heading: "Your photos",
+    empty: "No photos added yet",
+    uploaded: "Uploaded",
+    uploading: "Uploading",
+    queued: "Ready",
+    failed: "Upload failed",
+    retry: "Retry upload",
+    choose: "Choose file to retry",
+    remove: "Remove",
+    total: "Overall upload progress",
+    errors: {
+      photo_asset_limit_exceeded: "A workspace can contain up to 500 photos.",
+      photo_job_bytes_exceeded:
+        "These photos exceed the 10 GB workspace limit.",
+      photo_file_too_large: "This photo is too large.",
+      photo_upload_failed: "Upload failed. Try again.",
+    },
+  },
+  "zh-HK": {
+    add: "加入相片",
+    heading: "你的相片",
+    empty: "尚未加入相片",
+    uploaded: "已上載",
+    uploading: "上載中",
+    queued: "準備上載",
+    failed: "上載失敗",
+    retry: "重新上載",
+    choose: "選擇檔案重新上載",
+    remove: "移除",
+    total: "整體上載進度",
+    errors: {
+      photo_asset_limit_exceeded: "每個工作區最多可加入 500 張相片。",
+      photo_job_bytes_exceeded: "相片總容量超過工作區 10 GB 上限。",
+      photo_file_too_large: "此相片檔案太大。",
+      photo_upload_failed: "上載失敗，請再試一次。",
+    },
+  },
+} as const;
+export function PhotoUploader({
+  jobId,
+  locale,
+  assets = [],
+  onChanged,
+}: {
+  jobId: string;
+  locale: Locale;
+  assets?: PhotoAssetView[];
+  onChanged?: () => void;
+}) {
+  const copy = labels[locale];
+  const storageKey = `fotomax:photo-queue:${jobId}`;
+  const uploader = useMemo(
+    () => new MultipartUploader(createPhotoClient()),
+    [],
+  );
+  const [rows, setRows] = useState<QueueRow[]>(() =>
+    restoreUploads({
+      id: jobId,
+      locale,
+      revision: 0,
+      status: "uploading",
+      assets,
+    }).map((item) => ({
+      ...item,
+      assetId: item.id,
+      progress: item.status === "uploaded" ? 100 : 0,
+    })),
+  );
+  const [hydrated, setHydrated] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const retryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const abortControllers = useRef<Record<string, AbortController>>({});
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(storageKey) ?? "[]",
+      ) as QueueRow[];
+      if (saved.length)
+        setRows(
+          saved.map((row) => ({
+            ...row,
+            status: row.status === "uploading" ? "failed" : row.status,
+            error:
+              row.status === "uploading" ? "photo_upload_failed" : row.error,
+          })),
+        );
+    } catch {}
+    setHydrated(true);
+  }, [storageKey]);
+  useEffect(() => {
+    if (hydrated)
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(rows.map(({ file: _file, ...row }) => row)),
+      );
+  }, [hydrated, rows, storageKey]);
+  const update = (id: string, patch: Partial<QueueRow>) =>
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  const persistPatch = (row: QueueRow, patch: Partial<QueueRow>) => {
+    let saved: QueueRow[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      if (Array.isArray(parsed)) saved = parsed;
+    } catch {
+      saved = [];
+    }
+    const { file: _file, ...durableRow } = row;
+    const existing = saved.find((item) => item.id === row.id) ?? durableRow;
+    const persisted = { ...existing, ...patch };
+    const next = saved.some((item) => item.id === row.id)
+      ? saved.map((item) => (item.id === row.id ? persisted : item))
+      : [...saved, persisted];
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    update(row.id, patch);
+  };
+  const removePersistedRow = (id: string) => {
+    let saved: QueueRow[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      if (Array.isArray(parsed)) saved = parsed;
+    } catch {
+      saved = [];
+    }
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(saved.filter((item) => item.id !== id)),
+    );
+  };
+  const message = (code?: string) =>
+    copy.errors[code as keyof typeof copy.errors] ??
+    copy.errors.photo_upload_failed;
+  async function run(row: QueueRow) {
+    if (!row.file) return;
+    abortControllers.current[row.id]?.abort();
+    const controller = new AbortController();
+    abortControllers.current[row.id] = controller;
+    update(row.id, { status: "uploading", error: undefined });
+    try {
+      const completionCheckpoint =
+        row.assetId && row.sessionId && row.completionEtag?.trim()
+          ? {
+              assetId: row.assetId,
+              sessionId: row.sessionId,
+              etag: row.completionEtag,
+            }
+          : undefined;
+      await uploader.upload(jobId, row.file, row.id, {
+        signal: controller.signal,
+        completionCheckpoint,
+        onProgress: (progress) =>
+          update(row.id, { progress: progress.percent }),
+        onSession: (session: PhotoUploadSessionView) => {
+          const sameSession = row.sessionId === session.sessionId;
+          persistPatch(row, {
+            sessionId: session.sessionId,
+            assetId: session.assetId,
+            status:
+              session.status === "completed" ? "uploaded" : "uploading",
+            ...(session.status === "completed"
+              ? { progress: 100, completionEtag: undefined }
+              : sameSession
+                ? {}
+                : { completionEtag: undefined }),
+          });
+        },
+        onCompletionPending: (checkpoint) =>
+          persistPatch(row, {
+            assetId: checkpoint.assetId,
+            sessionId: checkpoint.sessionId,
+            completionEtag: checkpoint.etag,
+            progress: 100,
+            status: "uploading",
+          }),
+        onTerminal: (result) =>
+          persistPatch(row, {
+            assetId: result.assetId,
+            sessionId: result.sessionId,
+            completionEtag: undefined,
+            progress: 100,
+            status: "uploaded",
+          }),
+      });
+      update(row.id, { status: "uploaded", progress: 100 });
+      onChanged?.();
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const code =
+        error instanceof Error ? error.message : "photo_upload_failed";
+      update(row.id, { status: "failed", error: code });
+      requestAnimationFrame(() => retryRefs.current[row.id]?.focus());
+    } finally {
+      if (abortControllers.current[row.id] === controller)
+        delete abortControllers.current[row.id];
+    }
+  }
+  function select(files: FileList | null) {
+    const selected = Array.from(files ?? []);
+    if (!selected.length) return;
+    try {
+      validateSelection(
+        selected,
+        rows.map((row) => ({
+          expected_bytes: row.bytes,
+          status: row.status === "uploaded" ? "uploaded" : "uploading",
+        })),
+      );
+    } catch (error) {
+      setSelectionError(
+        message(error instanceof Error ? error.message : undefined),
+      );
+      return;
+    }
+    setSelectionError(null);
+    const additions = selected.map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      bytes: file.size,
+      status: "queued" as const,
+      progress: 0,
+      file,
+    }));
+    setRows((current) => [...current, ...additions]);
+    additions.forEach((row) => void run(row));
+  }
+  async function remove(row: QueueRow) {
+    abortControllers.current[row.id]?.abort();
+    delete abortControllers.current[row.id];
+    if (row.sessionId && row.status !== "uploaded")
+      await uploader.abort(jobId, row.sessionId).catch(() => undefined);
+    if (row.assetId) await createPhotoClient().deleteAsset(jobId, row.assetId);
+    removePersistedRow(row.id);
+    setRows((current) => current.filter((item) => item.id !== row.id));
+    onChanged?.();
+  }
+  function replaceFile(row: QueueRow, files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    if (file.name !== row.name || file.size !== row.bytes) {
+      update(row.id, { error: "photo_upload_failed" });
+      return;
+    }
+    const next = { ...row, file };
+    update(row.id, { file });
+    void run(next);
+  }
+  const totalBytes = rows.reduce((sum, row) => sum + row.bytes, 0);
+  const uploadedBytes = rows.reduce(
+    (sum, row) => sum + (row.bytes * row.progress) / 100,
+    0,
+  );
+  const aggregate = totalBytes
+    ? Math.round((uploadedBytes / totalBytes) * 100)
+    : 0;
+  return (
+    <section className="photo-uploader" aria-labelledby="photo-queue-heading">
+      <div className="photo-uploader-toolbar">
+        <div>
+          <p className="eyebrow">FotoMax</p>
+          <h2 id="photo-queue-heading">{copy.heading}</h2>
+        </div>
+        <label className="button primary photo-picker">
+          <ImagePlus aria-hidden="true" size={19} />
+          {copy.add}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            multiple
+            onChange={(event) => select(event.currentTarget.files)}
+          />
+        </label>
+      </div>
+      {selectionError ? (
+        <p className="photo-error" role="alert">
+          {selectionError}
+        </p>
+      ) : null}
+      <div className="photo-aggregate">
+        <span>{copy.total}</span>
+        <strong>{aggregate}%</strong>
+        <progress value={aggregate} max={100}>
+          {aggregate}%
+        </progress>
+      </div>
+      {rows.length ? (
+        <ul className="photo-queue">
+          {rows.map((row) => (
+            <li className="photo-queue-row" key={row.id}>
+              <UploadCloud aria-hidden="true" size={22} />
+              <div className="photo-file">
+                <strong>{row.name}</strong>
+                <span>
+                  {formatBytes(row.bytes)} · {copy[row.status]}
+                </span>
+                {row.error ? (
+                  <span className="photo-row-error" role="alert">
+                    {message(row.error)}
+                  </span>
+                ) : null}
+              </div>
+              <progress
+                aria-label={`${row.name}: ${copy[row.status]}`}
+                value={row.progress}
+                max={100}
+              >
+                {row.progress}%
+              </progress>
+              <span className="photo-percent" aria-live="polite">
+                {row.progress}%
+              </span>
+              <div className="photo-row-actions">
+                {row.status === "failed" && row.file ? (
+                  <button
+                    className="icon-button"
+                    type="button"
+                    ref={(node) => {
+                      retryRefs.current[row.id] = node;
+                    }}
+                    onClick={() => void run(row)}
+                    title={copy.retry}
+                  >
+                    <RefreshCw aria-hidden="true" size={18} />
+                    <span className="sr-only">{copy.retry}</span>
+                  </button>
+                ) : null}
+                {row.status === "failed" && !row.file ? (
+                  <label
+                    className="icon-button photo-retry-picker"
+                    title={copy.choose}
+                  >
+                    <RefreshCw aria-hidden="true" size={18} />
+                    <span className="sr-only">{copy.choose}</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      onChange={(event) =>
+                        replaceFile(row, event.currentTarget.files)
+                      }
+                    />
+                  </label>
+                ) : null}
+                <button
+                  className="icon-button"
+                  type="button"
+                  disabled={row.status === "uploading" && !row.assetId}
+                  onClick={() => void remove(row)}
+                  title={copy.remove}
+                >
+                  <Trash2 aria-hidden="true" size={18} />
+                  <span className="sr-only">{copy.remove}</span>
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="photo-empty">
+          <UploadCloud aria-hidden="true" size={30} />
+          <p>{copy.empty}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

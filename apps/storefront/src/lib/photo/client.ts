@@ -1,0 +1,146 @@
+import {
+  PhotoClientError,
+  type PhotoJobView,
+  type PhotoUploadCompletion,
+  type PhotoUploadSessionView,
+  type SignedUploadPart,
+} from "./contracts";
+
+type Fetcher = typeof fetch;
+
+async function json<T>(
+  fetcher: Fetcher,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetcher(input, {
+    cache: "no-store",
+    credentials: "same-origin",
+    ...init,
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { code?: string };
+  } & T;
+  if (!response.ok)
+    throw new PhotoClientError(
+      body.error?.code ?? "photo_job_unavailable",
+      response.status,
+    );
+  return body;
+}
+
+export function createPhotoClient(fetcher: Fetcher = fetch) {
+  return {
+    async getJob(jobId: string): Promise<PhotoJobView> {
+      const body = await json<{ photo_job?: PhotoJobView; job?: PhotoJobView }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}`,
+      );
+      return body.photo_job ?? body.job ?? (body as unknown as PhotoJobView);
+    },
+    async createVersion(jobId: string, input: Record<string, unknown>): Promise<{ version: { id: string }; items: unknown[]; jobRevision: number }> {
+      return json(fetcher, `/api/photo-jobs/${encodeURIComponent(jobId)}/versions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify(input),
+      })
+    },
+    async quoteVersion(jobId: string, versionId: string): Promise<{ versionId: string; subtotal: number; currencyCode: string; quotedAt: string; quoteExpiresAt: string; manifestDigest: string; requiresReview?: boolean }> {
+      const body = await json<{ quote: { versionId: string; subtotal: number; currencyCode: string; quotedAt: string; quoteExpiresAt: string; manifestDigest: string; requiresReview?: boolean } }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/quote`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ versionId }) },
+      )
+      return body.quote
+    },
+    async attachToCart(jobId: string): Promise<unknown> {
+      const body = await json<{ cart: unknown }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/cart`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      )
+      return body.cart
+    },    async createUpload(
+      jobId: string,
+      input: {
+        filename: string;
+        reportedMime: string;
+        bytes: number;
+        sourceIdempotencyKey: string;
+        signatureBase64: string;
+      },
+      signal?: AbortSignal,
+    ): Promise<PhotoUploadSessionView> {
+      const body = await json<{ upload: PhotoUploadSessionView }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+          signal,
+        },
+      );
+      return body.upload;
+    },
+    async signPart(
+      jobId: string,
+      sessionId: string,
+      partNumber: number,
+      checksumCRC32C: string,
+      signal?: AbortSignal,
+    ): Promise<SignedUploadPart> {
+      const body = await json<{ part: SignedUploadPart }>(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/parts`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ partNumber, checksumCRC32C }),
+          signal,
+        },
+      );
+      return body.part;
+    },
+    async complete(
+      jobId: string,
+      sessionId: string,
+      completion: PhotoUploadCompletion,
+      signal?: AbortSignal,
+    ): Promise<void> {
+      const body = completion.strategy === "single-put"
+        ? { etag: completion.etag }
+        : { parts: completion.parts };
+      await json(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/complete`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          signal,
+        },
+      );
+    },
+    async deleteAsset(jobId: string, assetId: string): Promise<void> {
+      await json(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`,
+        { method: "DELETE" },
+      );
+    },
+    async abort(jobId: string, sessionId: string): Promise<void> {
+      await json(
+        fetcher,
+        `/api/photo-jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(sessionId)}/abort`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+    },
+  };
+}
+
+export type PhotoClient = ReturnType<typeof createPhotoClient>;

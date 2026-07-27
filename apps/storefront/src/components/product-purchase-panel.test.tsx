@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { BranchView } from "../lib/medusa/branches"
 import type { CatalogProduct } from "../lib/medusa/contracts"
 import { CartProvider } from "./cart-provider"
-import { BranchAvailability, ProductPurchasePanel, isOptionValueAvailable, selectVariantForOption } from "./product-purchase-panel"
+import { BranchAvailability, ProductPurchasePanel, isOptionValueAvailable, selectVariantForOption, startPhotoPrintJob } from "./product-purchase-panel"
 
 const retailProduct: CatalogProduct = {
   id: "prod_film", handle: "instax-mini-film-pack", title: "Instax Mini Film Pack",
@@ -90,8 +90,24 @@ describe("retail product purchase panel", () => {
     expect(disabled).toContain(unavailable)
     expect(disabled).not.toContain("/photo-print/editor")
     expect(enabled).toContain(action)
-    expect(enabled).toContain(`href="/${locale}/services/photo-print/editor"`)
+    expect(enabled).toContain('type="button"')
+    expect(enabled).not.toContain("/photo-print/editor")
     expect(enabled).not.toContain("addVariant")
+  })
+
+  it("creates a photo job before navigating to its localized URL", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      photo_job: { id: "phjob_123", locale: "zh-HK", status: "draft", revision: 0 },
+    }), { status: 201, headers: { "content-type": "application/json" } }))
+    const navigate = vi.fn()
+
+    await startPhotoPrintJob("zh-HK", fetcher as typeof fetch, navigate)
+
+    expect(fetcher).toHaveBeenCalledWith("/api/photo-jobs", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ locale: "zh-HK" }),
+    }))
+    expect(navigate).toHaveBeenCalledWith("/zh-HK/photo-jobs/phjob_123")
   })
 
   it("renders localized staging pickup availability, loading, and recovery states", () => {

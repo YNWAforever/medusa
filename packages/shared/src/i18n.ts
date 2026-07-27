@@ -25,6 +25,9 @@ export const copy = {
   comingSoon: { "zh-HK": "即將推出", en: "Coming soon" },
   addToCart: { "zh-HK": "加入購物車", en: "Add to cart" },
   addedToCart: { "zh-HK": "已加入購物車", en: "Added to cart" },
+  photoWorkspace: { "zh-HK": "相片工作區", en: "Photo workspace" },
+  addPhotos: { "zh-HK": "加入相片", en: "Add photos" },
+  uploaded: { "zh-HK": "已上載", en: "Uploaded" },
 } as const satisfies Record<string, LocalizedText>
 
 export type CopyKey = keyof typeof copy

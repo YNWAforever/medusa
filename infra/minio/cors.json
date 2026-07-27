@@ -1,0 +1,15 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["http://localhost:3100"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": [
+        "content-type",
+        "x-amz-checksum-crc32c",
+        "x-amz-sdk-checksum-algorithm"
+      ],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}

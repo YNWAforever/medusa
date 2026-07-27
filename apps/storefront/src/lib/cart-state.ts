@@ -40,3 +40,38 @@ export function groupCartLines(items: readonly CartLineView[]): Record<CartLineV
 export function cartItemCount(cart: CartView): number {
   return cart.items.reduce((total, item) => total + item.quantity, 0)
 }
+
+export interface VisualCartGroup {
+  key: string
+  kind: CartLineView["kind"]
+  title: string
+  quantity: number
+  photoCount: number | null
+  subtotal: CartLineView["subtotal"]
+  lines: CartLineView[]
+}
+
+export function groupVisualCartLines(items: readonly CartLineView[]): VisualCartGroup[] {
+  const groups = new Map<string, VisualCartGroup>()
+  for (const item of items) {
+    const isPhoto = item.kind === "photo_print" && Boolean(item.photoJobVersionId)
+    const key = isPhoto ? `photo:${item.photoJobVersionId}` : `line:${item.id}`
+    const current = groups.get(key)
+    if (current) {
+      current.lines.push(item)
+      current.quantity += item.quantity
+      current.subtotal.amount += item.subtotal.amount
+      continue
+    }
+    groups.set(key, {
+      key,
+      kind: item.kind,
+      title: isPhoto ? "Photo prints" : item.title,
+      quantity: item.quantity,
+      photoCount: isPhoto ? item.photoCount : null,
+      subtotal: { ...item.subtotal },
+      lines: [item],
+    })
+  }
+  return [...groups.values()]
+}

@@ -10,7 +10,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react"
-import { createCartRefreshGuard } from "../lib/cart-state"
+import { createCartRefreshGuard, groupVisualCartLines } from "../lib/cart-state"
 import type { CartLineView, CartView } from "../lib/medusa/contracts"
 
 interface CartContextValue {
@@ -163,9 +163,11 @@ export function CartProvider({
     setIsMutating(true)
     try {
       let nextCart = cart
-      for (const item of cart.items) {
+      for (const group of groupVisualCartLines(cart.items)) {
+        const line = group.lines[0]
+        if (!line) continue
         nextCart = await cartRequest(
-          "/api/cart/items/" + encodeURIComponent(item.id),
+          "/api/cart/items/" + encodeURIComponent(line.id),
           { method: "DELETE" },
         )
         setCart(nextCart)
