@@ -28,6 +28,18 @@ export interface PhotoStorageAdapter {
     maxBytes: number
     expiresIn: number
   }): Promise<PhotoDirectUploadGrant>
+  /**
+   * Server-side streaming write of an original.
+   *
+   * Phase 2B only ever had the browser PUT to a presigned URL. Importing from
+   * Google Photos or Dropbox means Medusa itself holds the bytes, and they must
+   * not be buffered, so the body is a stream of unknown length.
+   */
+  writeOriginal(input: {
+    key: string
+    body: Readable
+    contentType: string
+  }): Promise<{ etag: string }>
   inspect(key: string): Promise<PhotoObjectInfo>
   readPrefix(key: string, maxBytes: number): Promise<Uint8Array>
   read(key: string): Promise<Readable>
@@ -93,6 +105,11 @@ export interface PhotoObjectStorage {
     maxBytes: number
     expiresIn: number
   }): Promise<PhotoDirectUploadGrant>
+  writeOriginal(input: {
+    ref: PhotoObjectRef
+    body: Readable
+    contentType: string
+  }): Promise<{ etag: string }>
   inspect(ref: PhotoObjectRef): Promise<PhotoObjectInfo>
   readPrefix(ref: PhotoObjectRef, maxBytes: number): Promise<Uint8Array>
   read(ref: PhotoObjectRef): Promise<Readable>

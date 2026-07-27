@@ -109,6 +109,18 @@ export default class PhotoStorageModuleService implements PhotoObjectStorage {
     return this.adapter(ref.provider).read(ref.key)
   }
 
+  async writeOriginal(input: {
+    ref: PhotoObjectRef
+    body: Readable
+    contentType: string
+  }): Promise<{ etag: string }> {
+    return this.adapter(input.ref.provider).writeOriginal({
+      key: input.ref.key,
+      body: input.body,
+      contentType: input.contentType,
+    })
+  }
+
   async writePreview(input: {
     ref: PhotoObjectRef
     bytes: Buffer

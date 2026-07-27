@@ -82,6 +82,8 @@ function ops(overrides: Partial<UploadOperations> = {}): UploadOperations {
         expiresAt: "2026-07-26T12:15:00.000Z",
         requiredHeaders: { "content-type": "image/jpeg" },
       })),
+      // Server-side import path; these routes only ever presign for the browser.
+      writeOriginal: vi.fn(async () => ({ etag: "\"import-etag\"" })),
       inspect: vi.fn(async () => ({
         bytes: 12,
         contentType: "image/jpeg",

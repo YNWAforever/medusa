@@ -11,6 +11,7 @@ import {
   UploadPartCommand,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3"
+import { Upload } from "@aws-sdk/lib-storage"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import {
   PhotoStorageError,
@@ -39,9 +40,21 @@ type Presign = (
   },
 ) => Promise<string>
 
+/**
+ * Managed multipart upload. Injectable for the same reason `client` and
+ * `presign` are: the suite runs with no AWS SDK client at all.
+ */
+type StreamUpload = (input: {
+  client: unknown
+  params: Record<string, unknown>
+  queueSize?: number
+  leavePartsOnError?: boolean
+}) => { done(): Promise<{ ETag?: string }> }
+
 export type S3AdapterDependencies = {
   client?: CommandClient
   presign?: Presign
+  upload?: StreamUpload
 }
 
 function validateKey(key: string): void {
@@ -96,6 +109,7 @@ export class S3PhotoStorageAdapter
   implements PhotoStorageAdapter, LegacyMultipartStorage {
   private readonly client: CommandClient
   private readonly presign: Presign
+  private readonly upload: StreamUpload
 
   constructor(
     private readonly config: PhotoS3Config,
@@ -111,6 +125,8 @@ export class S3PhotoStorageAdapter
       },
     } satisfies S3ClientConfig)
     this.presign = dependencies.presign ?? getSignedUrl
+    this.upload = dependencies.upload
+      ?? ((input) => new Upload(input as never))
   }
 
   async createDirectUpload(input: {
@@ -259,6 +275,39 @@ export class S3PhotoStorageAdapter
       if (isNotFound(error)) {
         throw new PhotoStorageError("photo_storage_not_found")
       }
+      throw providerError()
+    }
+  }
+
+  async writeOriginal(input: {
+    key: string
+    body: Readable
+    contentType: string
+  }): Promise<{ etag: string }> {
+    validateKey(input.key)
+    try {
+      // PutObject needs a known Content-Length; an imported stream has none, so
+      // this goes through managed multipart. queueSize 1 keeps peak memory at a
+      // single part rather than four.
+      const upload = this.upload({
+        client: this.client,
+        queueSize: 1,
+        leavePartsOnError: false,
+        params: {
+          Bucket: this.config.bucket,
+          Key: input.key,
+          Body: input.body,
+          ContentType: input.contentType,
+          ...(this.config.serverSideEncryption === false
+            ? {}
+            : { ServerSideEncryption: "AES256" as const }),
+        },
+      })
+      const result = await upload.done()
+      if (!result.ETag) throw providerError()
+      return { etag: result.ETag }
+    } catch (error) {
+      if (error instanceof PhotoStorageError) throw error
       throw providerError()
     }
   }

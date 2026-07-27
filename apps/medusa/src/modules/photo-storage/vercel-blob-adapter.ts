@@ -234,6 +234,31 @@ export class VercelBlobPhotoStorageAdapter implements PhotoStorageAdapter {
     }
   }
 
+  async writeOriginal(input: {
+    key: string
+    body: Readable
+    contentType: string
+  }): Promise<{ etag: string }> {
+    validateKey(input.key)
+    try {
+      // Vercel Blob accepts a stream directly, so no multipart bookkeeping is
+      // needed on this provider.
+      const result = await this.api.put(input.key, input.body, {
+        token: this.config.token,
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: input.contentType,
+      })
+      if (result.pathname !== input.key || !result.etag) {
+        throw providerError()
+      }
+      return { etag: result.etag }
+    } catch (error) {
+      mapProviderError(error)
+    }
+  }
+
   async writePreview(input: {
     key: string
     bytes: Buffer
