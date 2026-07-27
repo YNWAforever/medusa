@@ -8,10 +8,10 @@
     "start": "node ./medusa-cli.cjs start",
     "start:container": "medusa start --host 0.0.0.0 --port 9000",
     "seed": "node ./medusa-cli.cjs exec ./src/scripts/seed.ts",
+    "create-admin": "node ./medusa-cli.cjs exec ./src/scripts/create-admin.ts",
     "ci:export-publishable-key": "node ./medusa-cli.cjs exec ./src/scripts/export-publishable-key.ts",
     "db:generate": "node ./medusa-cli.cjs db:generate",
     "db:migrate": "node ./medusa-cli.cjs db:migrate",
-    "predeploy": "node ./medusa-cli.cjs db:migrate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --forceExit"

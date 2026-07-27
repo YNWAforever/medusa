@@ -55,22 +55,36 @@ interface MedusaRegion {
 
 const cartFields = "id,currency_code,email,subtotal,shipping_total,tax_total,total,*items,*items.variant,*items.variant.product"
 
+export type CartErrorCode =
+  | "invalid_cart_input"
+  | "cart_region_unavailable"
+  | "cart_unrecoverable"
+
 export class CartError extends Error {
-  constructor(readonly code: "invalid_cart_input" | "cart_region_unavailable") {
+  constructor(readonly code: CartErrorCode) {
     super(code)
   }
 }
 
+/**
+ * A cart we cannot project cannot be rendered, so it cannot be repaired line by
+ * line either. Callers respond by dropping the cart cookie so the shopper gets a
+ * usable cart back instead of a permanent 502.
+ */
+export function isCartUnrecoverable(error: unknown): boolean {
+  return error instanceof CartError && error.code === "cart_unrecoverable"
+}
+
 function projectMoney(value: number | null | undefined): MoneyView {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new Error("Medusa cart amounts must be non-negative numbers")
+    throw new CartError("cart_unrecoverable")
   }
 
   const cents = Math.round(value * 100)
   const tolerance = Number.EPSILON * Math.max(1, Math.abs(value * 100)) * 4
 
   if (!Number.isSafeInteger(cents) || Math.abs(value * 100 - cents) > tolerance) {
-    throw new Error("Medusa cart amounts must be convertible to integer cents")
+    throw new CartError("cart_unrecoverable")
   }
 
   return { amount: cents, currencyCode: "hkd" }
@@ -80,7 +94,7 @@ function projectLine(line: MedusaCartLine): CartLineView {
   const mode = line.variant?.product?.metadata?.commerce_mode ?? line.metadata?.commerce_mode
 
   if (!line.id || !line.variant_id || !line.title || (mode !== "retail" && mode !== "photo_print")) {
-    throw new Error("Medusa cart line is missing required retail data")
+    throw new CartError("cart_unrecoverable")
   }
 
   return {
@@ -121,7 +135,7 @@ export function emptyCartView(): CartView {
 
 export function projectCart(cart: MedusaCart): CartView {
   if (cart.currency_code?.toLowerCase() !== "hkd" || !cart.id) {
-    throw new Error("Medusa cart currency must be HKD")
+    throw new CartError("cart_unrecoverable")
   }
 
   const items = (cart.items ?? []).map(projectLine)

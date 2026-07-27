@@ -68,7 +68,13 @@ Customer-facing failures should be explicit and recoverable:
 
 - Empty categories show useful fallback text and links back to featured categories.
 - Missing product handles return a clean not-found page.
-- Catalog/API failures can fall back to seed data where practical.
+- ~~Catalog/API failures can fall back to seed data where practical.~~
+  **Superseded.** Phase 2A moved the catalog to live Medusa with no seed fallback:
+  `app/[locale]/layout.tsx` awaits `getCatalogView()`, so a backend outage fails
+  every localized route. Rather than reintroduce a fallback that could serve stale
+  prices, the storefront now degrades through a bilingual error boundary at
+  `app/global-error.tsx`. A seed fallback remains an open option if offline
+  browsing is ever required.
 - Cart actions expose disabled, loading, success, and error states.
 - Next-phase service flows clearly explain that upload/configuration is not active in Phase 1.
 

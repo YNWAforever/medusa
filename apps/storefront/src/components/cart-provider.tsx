@@ -49,6 +49,15 @@ class CartRequestError extends Error {
   }
 }
 
+/**
+ * Both codes mean the server dropped the cart cookie: the cart either expired or
+ * could not be projected. Either way the recovery is the same — reset to empty
+ * and let the next add-to-cart create a fresh cart.
+ */
+function isResettableCart(code: string): boolean {
+  return code === "cart_expired" || code === "cart_unrecoverable"
+}
+
 async function cartRequest(path: string, init?: RequestInit): Promise<CartView> {
   const response = await fetch(path, {
     ...init,
@@ -121,7 +130,7 @@ export function CartProvider({
       setCart(await cartRequest(path, init))
       setMutationError(null)
     } catch (error) {
-      if (error instanceof CartRequestError && error.code === "cart_expired") {
+      if (error instanceof CartRequestError && isResettableCart(error.code)) {
         setCart(emptyCart)
         if (path === "/api/cart/items" && init.method === "POST") {
           try {
@@ -163,7 +172,7 @@ export function CartProvider({
       }
       setMutationError(null)
     } catch (error) {
-      if (error instanceof CartRequestError && error.code === "cart_expired") {
+      if (error instanceof CartRequestError && isResettableCart(error.code)) {
         setCart(emptyCart)
       }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")

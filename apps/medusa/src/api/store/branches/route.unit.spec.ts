@@ -119,6 +119,47 @@ function operations(
   }
 }
 
+describe("real branch exposure", () => {
+  it("serves a production branch and reports it as not test-only", async () => {
+    const realBranch = { ...branches[0], test_only: false }
+
+    const result = await evaluateStoreBranches(
+      operations({
+        async listBranchCapabilities() {
+          return [realBranch]
+        },
+        async listBranchLinks() {
+          return [{
+            stock_location_id: "sloc_central",
+            branch_capability_id: realBranch.id,
+          }]
+        },
+      }),
+      "cart_123",
+      ["sc_staging"],
+    )
+
+    // Before this change the route filtered on test_only, so a real branch
+    // disappeared from pickup entirely instead of losing its staging badge.
+    expect(result.branches).toHaveLength(1)
+    expect(result.branches[0]).toMatchObject({ handle: "central", testOnly: false })
+  })
+
+  it("still hides a branch with pickup disabled", async () => {
+    const result = await evaluateStoreBranches(
+      operations({
+        async listBranchCapabilities() {
+          return [{ ...branches[0], pickup_enabled: false }]
+        },
+      }),
+      "cart_123",
+      ["sc_staging"],
+    )
+
+    expect(result.branches).toEqual([])
+  })
+})
+
 async function expectMedusaError(
   action: () => Promise<unknown>,
   type: string,
@@ -202,6 +243,7 @@ describe("evaluateStoreBranches", () => {
           compatible: true,
           reasonCode: null,
           shippingOptionId: "so_central",
+          testOnly: true,
         },
         {
           id: "brcap_mong-kok",
@@ -212,6 +254,7 @@ describe("evaluateStoreBranches", () => {
           compatible: true,
           reasonCode: null,
           shippingOptionId: "so_mong-kok",
+          testOnly: true,
         },
         {
           id: "brcap_sha-tin",
@@ -222,6 +265,7 @@ describe("evaluateStoreBranches", () => {
           compatible: true,
           reasonCode: null,
           shippingOptionId: "so_sha-tin",
+          testOnly: true,
         },
       ],
     })

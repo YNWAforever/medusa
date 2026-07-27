@@ -13,7 +13,8 @@ export interface BranchView {
   compatible: boolean
   reasonCode: BranchReasonCode
   shippingOptionId: string
-  stagingLabel: string
+  /** Only set for staging fixture branches; null for real ones. */
+  stagingLabel: string | null
 }
 
 export interface BranchStoreClient {
@@ -29,6 +30,7 @@ interface RawBranch {
   compatible: boolean
   reasonCode: BranchReasonCode
   shippingOptionId: string
+  testOnly: boolean
 }
 
 function invalidResponse(): never {
@@ -75,6 +77,7 @@ function rawBranch(value: unknown): RawBranch {
   }
   if (
     typeof source.compatible !== "boolean"
+    || typeof source.testOnly !== "boolean"
     || typeof source.leadTimeBusinessDays !== "number"
     || !Number.isInteger(source.leadTimeBusinessDays)
     || source.leadTimeBusinessDays < 0
@@ -91,6 +94,7 @@ function rawBranch(value: unknown): RawBranch {
     compatible: source.compatible,
     reasonCode,
     shippingOptionId: requiredString(source.shippingOptionId),
+    testOnly: source.testOnly,
   }
 }
 
@@ -129,7 +133,9 @@ export async function getBranchAvailability(
       compatible: branch.compatible,
       reasonCode: branch.reasonCode,
       shippingOptionId: branch.shippingOptionId,
-      stagingLabel: locale === "zh-HK" ? "測試取貨資料" : "Staging test data",
+      stagingLabel: branch.testOnly
+        ? locale === "zh-HK" ? "測試取貨資料" : "Staging test data"
+        : null,
     }
   })
 }

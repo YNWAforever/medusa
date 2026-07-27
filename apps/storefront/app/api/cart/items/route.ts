@@ -3,6 +3,7 @@ import { createStoreSdk } from "../../../../src/lib/medusa/client"
 import {
   CartError,
   createCartAdapter,
+  isCartUnrecoverable,
   parseAddCartItemInput,
 } from "../../../../src/lib/medusa/cart"
 import {
@@ -60,11 +61,9 @@ export async function POST(request: NextRequest) {
     response.cookies.set(CART_COOKIE, cart.id, cartCookieOptions)
     return response
   } catch (error) {
-    if (errorStatus(error) === 404 && cartId) {
-      const response = NextResponse.json(
-        { error: { code: "cart_expired" } },
-        { status: 410 },
-      )
+    if ((errorStatus(error) === 404 && cartId) || isCartUnrecoverable(error)) {
+      const code = isCartUnrecoverable(error) ? "cart_unrecoverable" : "cart_expired"
+      const response = NextResponse.json({ error: { code } }, { status: 410 })
       response.cookies.set(CART_COOKIE, "", { ...cartCookieOptions, maxAge: 0 })
       return response
     }

@@ -52,12 +52,36 @@ npm.cmd run secret:put --workspace @fotomax/cloudflare -- ADMIN_CORS
 npm.cmd run secret:put --workspace @fotomax/cloudflare -- AUTH_CORS
 npm.cmd run secret:put --workspace @fotomax/cloudflare -- JWT_SECRET
 npm.cmd run secret:put --workspace @fotomax/cloudflare -- COOKIE_SECRET
+npm.cmd run secret:put --workspace @fotomax/cloudflare -- ADMIN_GATE_SECRET
 ```
 
+`ADMIN_GATE_SECRET` gates `/app`, `/admin/*`, and `/auth/user/*` at the edge.
+Without it those paths return an opaque 404 — the gate fails closed for admin
+only, so store traffic is unaffected. Generate it like the other secrets.
+
 9. Deploy with `npm.cmd run cloudflare:deploy`, record the Worker URL and deployment identifier, then run `npm.cmd run container:list --workspace @fotomax/cloudflare`.
-10. In the existing Vercel staging project, set `MEDUSA_BACKEND_URL`, `MEDUSA_PUBLISHABLE_KEY`, and `STOREFRONT_SESSION_SECRET`, then redeploy the storefront.
-11. Run `node scripts/verify-phase-2a-staging.mjs` against the exact Worker and Vercel URLs, then run browser verification at 1440x900 and 375x812 for both locales, including delivery, pickup, account orders, and Admin order visibility.
-12. After deployment, rotate the Cloudflare token and the pasted Upstash Box credential.
+10. Bootstrap the Medusa Admin operator. Nothing else in the pipeline creates one, so the Admin verification below is impossible until this runs. Point `DATABASE_URL` at the same Neon database in the current process only:
+
+```powershell
+$env:FOTOMAX_ADMIN_EMAIL = "ops@example.com"
+$env:FOTOMAX_ADMIN_PASSWORD = "<strong-password>"
+npm.cmd run admin:create
+```
+
+The seed scripts are not present in the container image, so this runs from the
+workstation against Neon, exactly like step 7. The script is safe to re-run.
+
+11. In the existing Vercel staging project, set `MEDUSA_BACKEND_URL`, `MEDUSA_PUBLISHABLE_KEY`, and `STOREFRONT_SESSION_SECRET`, then redeploy the storefront.
+12. Run `node scripts/verify-phase-2a-staging.mjs` against the exact Worker and Vercel URLs, then run browser verification at 1440x900 and 375x812 for both locales, including delivery, pickup, account orders, and Admin order visibility. Reach the Admin by sending the `x-fotomax-admin-gate` header with `ADMIN_GATE_SECRET`; confirm that `/app` without the header returns 404 while `/store/regions` still succeeds.
+13. After deployment, rotate the Cloudflare token and the pasted Upstash Box credential.
+
+## Migrations
+
+There is no automatic migration step. `wrangler deploy` ships the Worker and
+container only, so `npm.cmd run db:migrate` (step 7) must be run and confirmed
+**before** deploying code that depends on a new column or table. An earlier
+`predeploy` hook implied this was automatic; it never ran, because the workspace
+has no `deploy` script for npm to hook onto, and it has been removed.
 
 ## Health and rollback
 

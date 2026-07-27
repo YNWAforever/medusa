@@ -72,6 +72,33 @@ function resolveRequiredValue(
   )
 }
 
+/**
+ * The admin dashboard is a privileged surface, so its toggle must be explicit
+ * outside local development. A missing value used to mean "enabled", which
+ * silently exposed the dashboard in production.
+ */
+function resolveDisableAdmin(source: MedusaRuntimeEnvSource): boolean {
+  const value = source.DISABLE_MEDUSA_ADMIN?.trim().toLowerCase()
+
+  if (!value) {
+    if (isLocalEnvironment(source.NODE_ENV)) {
+      return localDefaults.disableAdmin
+    }
+
+    throw new Error(
+      `Missing required environment variable DISABLE_MEDUSA_ADMIN for NODE_ENV=${JSON.stringify(source.NODE_ENV)}`,
+    )
+  }
+
+  if (value !== "true" && value !== "false") {
+    throw new Error(
+      `Invalid DISABLE_MEDUSA_ADMIN ${JSON.stringify(source.DISABLE_MEDUSA_ADMIN)}`,
+    )
+  }
+
+  return value === "true"
+}
+
 export function loadRuntimeEnv(source: MedusaRuntimeEnvSource): RuntimeEnv {
   const isLocal = isLocalEnvironment(source.NODE_ENV)
   const requestedWorkerMode = source.MEDUSA_WORKER_MODE?.trim() || "shared"
@@ -96,7 +123,7 @@ export function loadRuntimeEnv(source: MedusaRuntimeEnvSource): RuntimeEnv {
     ),
     redisUrl,
     workerMode: requestedWorkerMode,
-    disableAdmin: source.DISABLE_MEDUSA_ADMIN?.trim().toLowerCase() === "true",
+    disableAdmin: resolveDisableAdmin(source),
     isMedusaCloud: Boolean(source.MEDUSA_CLOUD_ENVIRONMENT_TYPE?.trim()),
     storeCors: resolveRequiredValue(source, "STORE_CORS", localDefaults.storeCors),
     adminCors: resolveRequiredValue(source, "ADMIN_CORS", localDefaults.adminCors),

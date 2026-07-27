@@ -3,6 +3,7 @@ import { createStoreSdk } from "../../../../../src/lib/medusa/client"
 import {
   CartError,
   createCartAdapter,
+  isCartUnrecoverable,
   parseUpdateCartItemInput,
 } from "../../../../../src/lib/medusa/cart"
 import {
@@ -18,8 +19,8 @@ function errorStatus(error: unknown): number | null {
   return typeof status === "number" ? status : null
 }
 
-function expiredResponse() {
-  const response = NextResponse.json({ error: { code: "cart_expired" } }, { status: 410 })
+function expiredResponse(code: "cart_expired" | "cart_unrecoverable" = "cart_expired") {
+  const response = NextResponse.json({ error: { code } }, { status: 410 })
   response.cookies.set(CART_COOKIE, "", { ...cartCookieOptions, maxAge: 0 })
   return response
 }
@@ -42,6 +43,12 @@ async function getConfirmedAdapter(cartId: string) {
   try {
     return await confirmedAdapter(cartId)
   } catch (error) {
+    // A cart we cannot project also cannot be repaired line by line, so drop the
+    // cookie instead of trapping the shopper behind a permanent 502.
+    if (isCartUnrecoverable(error)) {
+      return { response: expiredResponse("cart_unrecoverable") }
+    }
+
     return { response: errorStatus(error) === 404 ? expiredResponse() : unavailableResponse() }
   }
 }
@@ -69,6 +76,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
     return NextResponse.json({ cart: await confirmed.adapter.updateLine(cartId, lineId, quantity) })
   } catch (error) {
+    if (isCartUnrecoverable(error)) return expiredResponse("cart_unrecoverable")
     if (errorStatus(error) === 404) return lineNotFoundResponse()
     if (errorStatus(error) === 409) {
       return NextResponse.json({ error: { code: "cart_conflict" } }, { status: 409 })
@@ -90,6 +98,7 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
   try {
     return NextResponse.json({ cart: await confirmed.adapter.removeLine(cartId, lineId) })
   } catch (error) {
+    if (isCartUnrecoverable(error)) return expiredResponse("cart_unrecoverable")
     if (errorStatus(error) === 404) return lineNotFoundResponse()
     if (errorStatus(error) === 409) {
       return NextResponse.json({ error: { code: "cart_conflict" } }, { status: 409 })

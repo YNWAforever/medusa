@@ -42,6 +42,20 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
   )
 })
 
+test("gates pull requests and the integration branch, not just the feature branch", () => {
+  assert.match(workflow, /^\s*pull_request:\s*$/m)
+  assert.match(workflow, /branches:.*codex\/fotomax-foundation/)
+  assert.match(workflow, /branches:.*codex\/fotomax-storefront/)
+})
+
+test("bounds runtime, concurrency, and token scope", () => {
+  assert.match(workflow, /^\s*timeout-minutes:\s*\d+\s*$/m)
+  assert.match(workflow, /^concurrency:\s*$/m)
+  assert.match(workflow, /cancel-in-progress:\s*true/)
+  assert.match(workflow, /^permissions:\s*$/m)
+  assert.match(workflow, /contents:\s*read/)
+})
+
 test("builds the container offline before the Wrangler deployment dry-run", () => {
   const containerBuild = workflow.indexOf(
     "- run: npm run cloudflare:container:build:ci",
