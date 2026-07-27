@@ -31,20 +31,27 @@ const ambientSecrets = {
 
 type PlaywrightConfig = (typeof import("../playwright.config"))["default"]
 
+// Both are asserted against fixed values below, and playwright.config.ts falls
+// back to those only when the variable is unset. CI sets them, so they must be
+// stubbed or the assertion measures the runner's environment instead of the
+// config's isolation contract.
+const stubbedStorefrontEnvironment = {
+  MEDUSA_PUBLISHABLE_KEY: "pk_e2e_environment_boundary",
+  STOREFRONT_SESSION_SECRET: "fotomax-local-session-secret",
+} as const
+
 const originalEnvironment = new Map(
-  [...Object.keys(ambientSecrets), "MEDUSA_PUBLISHABLE_KEY"].map((key) => [
-    key,
-    process.env[key],
-  ]),
+  [
+    ...Object.keys(ambientSecrets),
+    ...Object.keys(stubbedStorefrontEnvironment),
+  ].map((key) => [key, process.env[key]]),
 )
 
 let playwrightConfig: PlaywrightConfig
 
 describe("Playwright server ownership", () => {
   beforeAll(async () => {
-    Object.assign(process.env, ambientSecrets, {
-      MEDUSA_PUBLISHABLE_KEY: "pk_e2e_environment_boundary",
-    })
+    Object.assign(process.env, ambientSecrets, stubbedStorefrontEnvironment)
     vi.resetModules()
     playwrightConfig = (await import("../playwright.config")).default
   })
