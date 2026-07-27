@@ -8,11 +8,32 @@ This app is the Medusa boundary for the Fotomax storefront foundation.
 - `npm run test --workspace @fotomax/medusa` validates the generated Fotomax payload without PostgreSQL.
 - `npm run typecheck --workspace @fotomax/medusa` checks the backend config and seed script.
 - `npm run build --workspace @fotomax/medusa` compiles the Medusa application skeleton.
-- `npm run seed --workspace @fotomax/medusa` starts Medusa and writes the Fotomax region, collections, and products to the configured database.
+- `npm run seed --workspace @fotomax/medusa` starts Medusa and writes the Fotomax reference data to the configured database.
+- `npm run create-admin --workspace @fotomax/medusa` creates the initial Medusa Admin operator (see below).
 
-The seed command executes Medusa's region, collection, and product creation workflows. It requires a reachable PostgreSQL database and the Medusa environment below. Shared product options are expanded into priced variants, and products are linked to the collection IDs returned by Medusa. Phase 1 service entries are deliberately excluded because they do not yet have a Medusa model.
+The seed command executes Medusa's region, collection, and product creation workflows. It requires a reachable PostgreSQL database and the Medusa environment below. Shared product options are expanded into priced variants, and products are linked to the collection IDs returned by Medusa. It also owns the stock locations, pickup branches, shipping options, and the storefront publishable key. Phase 1 service entries are deliberately excluded because they do not yet have a Medusa model.
 
-The seed is not idempotent. Re-running it against an already-seeded database may create duplicates or fail on conflicting handles or SKUs. Until an explicit repeat-run strategy is implemented, run it only against the intended empty or disposable local database. Passing payload tests proves DTO construction and workflow ordering; it does not prove that a database write completed.
+The seed reconciles: it is safe to re-run against an already-seeded database, and CI deliberately runs it twice to prove that. Passing payload tests prove DTO construction and workflow ordering; they do not prove that a database write completed.
+
+## Medusa Admin
+
+The dashboard is served by this app at `/app`, and `/admin/*` is authenticated by
+the framework as a `user` actor. Nothing creates that user automatically, so a
+fresh database has no way to sign in until you bootstrap one:
+
+```bash
+FOTOMAX_ADMIN_EMAIL=ops@example.com FOTOMAX_ADMIN_PASSWORD='<strong-password>' npm run admin:create
+```
+
+Credentials are read from the environment rather than argv so they stay out of
+shell history and the process list. The script is safe to re-run — an existing
+user is reported and left untouched.
+
+`DISABLE_MEDUSA_ADMIN` must be exactly `true` or `false`, and it is **required**
+outside local development; a missing value used to mean "enabled", which silently
+exposed the dashboard. On the Cloudflare staging Worker the dashboard, `/admin/*`,
+and `/auth/user/*` additionally sit behind an edge gate — see
+`docs/deployment/fotomax-phase-2-staging.md`.
 
 ## Required Local Environment
 
@@ -40,6 +61,7 @@ For every other environment name, including `preview`, `staging`, and `productio
 - `AUTH_CORS`
 - `JWT_SECRET`
 - `COOKIE_SECRET`
+- `DISABLE_MEDUSA_ADMIN` (must be `true` or `false`)
 
 This prevents local credentials or localhost origins from silently reaching a deployed environment.
 
