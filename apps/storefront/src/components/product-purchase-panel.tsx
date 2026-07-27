@@ -99,7 +99,7 @@ export function BranchAvailability({
               <strong>{branch.name}</strong>
               <span>{branch.district}</span>
             </div>
-            <span className="staging-label">{branch.stagingLabel}</span>
+            {branch.stagingLabel ? <span className="staging-label">{branch.stagingLabel}</span> : null}
             <span className={branch.compatible ? "availability available" : "availability unavailable"}>
               {branch.compatible
                 ? locale === "zh-HK" ? "此購物車可於此取貨" : "Available for this cart"

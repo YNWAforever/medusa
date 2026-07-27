@@ -21,6 +21,11 @@ export interface StoreBranchOption {
   compatible: boolean
   reasonCode: "retail_out_of_stock" | "print_not_supported" | null
   shippingOptionId: string
+  /**
+   * Whether this is staging fixture data. The storefront badges only these, so
+   * real branches can be served without a "Staging test data" label.
+   */
+  testOnly: boolean
 }
 
 export interface BranchCart {
@@ -192,7 +197,7 @@ export async function evaluateStoreBranches(
     links.map((link) => [link.branch_capability_id, link]),
   )
   const linkedBranches = capabilities
-    .filter((branch) => branch.pickup_enabled && branch.test_only)
+    .filter((branch) => branch.pickup_enabled)
     .flatMap((branch) => {
       const link = linksByCapabilityId.get(branch.id)
       return link ? [{ branch, locationId: link.stock_location_id }] : []
@@ -265,6 +270,7 @@ export async function evaluateStoreBranches(
         compatible,
         reasonCode: compatible ? null : "retail_out_of_stock",
         shippingOptionId: shippingOption.id,
+        testOnly: branch.test_only,
       }
     }),
   }
@@ -317,7 +323,6 @@ export function createMedusaBranchCompatibilityOperations(
     async listBranchCapabilities() {
       const records = await branchCapabilityService.listBranchCapabilities({
         pickup_enabled: true,
-        test_only: true,
       })
       return records.map((branch) => ({
         id: branch.id,
