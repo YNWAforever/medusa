@@ -151,6 +151,111 @@ describe("checkout adapter", () => {
     expect(calls).toEqual(["update:address", "add"])
   })
 
+  it("survives delivery to pickup and back without losing the shopper's address", async () => {
+    const customerAddress = {
+      first_name: "Ada",
+      last_name: "Lovelace",
+      address_1: "1 Queen's Road",
+      address_2: "Flat A",
+      city: "Central",
+      postal_code: "999077",
+      country_code: "hk",
+      phone: "+85261234567",
+    }
+    const cart: Record<string, unknown> = {
+      ...emptyCart,
+      shipping_address: { ...customerAddress },
+      metadata: {
+        fotomax_checkout_first_name: "Ada",
+        fotomax_checkout_last_name: "Lovelace",
+        fotomax_checkout_phone: "+85261234567",
+        fotomax_delivery_address: { ...customerAddress },
+      },
+    }
+    const writes: Array<Record<string, unknown>> = []
+    const sdk = {
+      store: {
+        cart: {
+          retrieve: async () => ({ cart }),
+          update: async (_id: string, body: Record<string, unknown>) => {
+            if (body.shipping_address) {
+              writes.push(body.shipping_address as Record<string, unknown>)
+              cart.shipping_address = body.shipping_address
+            }
+            return { cart }
+          },
+          addShippingMethod: async () => ({ cart }),
+          complete: async () => ({ type: "order", order: {} }),
+        },
+        fulfillment: { listCartOptions: async () => ({ shipping_options: rawOptions }) },
+        payment: {
+          listPaymentProviders: async () => ({ payment_providers: [{ id: "pp_system_default" }] }),
+          initiatePaymentSession: async () => ({ payment_collection: {} }),
+        },
+      },
+    }
+    const adapter = createCheckoutAdapter(sdk)
+    const options = projectShippingOptions(rawOptions, branches, "en")
+
+    await adapter.setFulfillment(
+      "cart_123",
+      parseFulfillmentInput({ kind: "pickup", shippingOptionId: "so_central", branchHandle: "central-staging" }),
+      options,
+    )
+
+    // Branch staff still get a name and phone to hand the order over.
+    expect(writes[0]).toMatchObject({
+      address_1: "Test Central Location",
+      first_name: "Ada",
+      last_name: "Lovelace",
+      phone: "+85261234567",
+    })
+
+    await adapter.setFulfillment(
+      "cart_123",
+      parseFulfillmentInput({ kind: "delivery", shippingOptionId: "so_delivery", branchHandle: null }),
+      options,
+    )
+
+    // Switching back restores the shopper's own address rather than shipping the
+    // parcel to the Fotomax store.
+    expect(writes[1]).toMatchObject({ address_1: "1 Queen's Road", city: "Central" })
+    expect(cart.shipping_address).toMatchObject({ address_1: "1 Queen's Road" })
+  })
+
+  it("refuses to complete a delivery order still addressed to the pickup branch", async () => {
+    const cart = {
+      ...emptyCart,
+      items: [{ id: "line_1", variant_id: "variant_1", title: "Print", quantity: 1, unit_price: 10, subtotal: 10, variant: { product: { metadata: { commerce_mode: "retail" } } } }],
+      subtotal: 10,
+      total: 10,
+      shipping_methods: [{ shipping_option_id: "so_delivery" }],
+      shipping_address: { address_1: "Test Central Location", city: "Central", country_code: "hk" },
+      metadata: {
+        fotomax_delivery_address: { address_1: "1 Queen's Road", city: "Central", country_code: "hk" },
+      },
+    }
+    const sdk = {
+      store: {
+        cart: {
+          retrieve: async () => ({ cart }),
+          update: async () => ({ cart }),
+          addShippingMethod: async () => ({ cart }),
+          complete: async () => ({ type: "order", order: {} }),
+        },
+        fulfillment: { listCartOptions: async () => ({ shipping_options: rawOptions }) },
+        payment: {
+          listPaymentProviders: async () => ({ payment_providers: [{ id: "pp_system_default" }] }),
+          initiatePaymentSession: async () => ({ payment_collection: {} }),
+        },
+      },
+    }
+
+    await expect(
+      createCheckoutAdapter(sdk).validate("cart_123", "en", branches),
+    ).rejects.toMatchObject({ code: "missing_delivery_address" })
+  })
+
   it("maps a cart completion conflict to a stale checkout blocker", async () => {
     const sdk = {
       store: {

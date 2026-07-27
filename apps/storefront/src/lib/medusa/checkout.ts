@@ -107,7 +107,7 @@ export interface CheckoutSdk {
   }
 }
 
-const checkoutFields = "id,region_id,currency_code,email,subtotal,shipping_total,tax_total,total,*shipping_address,*items,*items.variant,*items.variant.product,*shipping_methods"
+const checkoutFields = "id,region_id,currency_code,email,metadata,subtotal,shipping_total,tax_total,total,*shipping_address,*items,*items.variant,*items.variant.product,*shipping_methods"
 const orderFields = "id,display_id,email,total,currency_code,created_at"
 
 function record(value: unknown, code: CheckoutErrorCode = "checkout_unavailable"): Record<string, unknown> {
@@ -254,6 +254,38 @@ export function projectShippingOptions(values: unknown[], branches: BranchView[]
   })
 }
 
+export const DELIVERY_ADDRESS_METADATA_KEY = "fotomax_delivery_address"
+
+interface StoredDeliveryAddress extends Record<string, unknown> {
+  address_1: string
+  city: string
+  country_code: string
+}
+
+/**
+ * Selecting store pickup overwrites `shipping_address` with the branch address.
+ * Medusa replaces the whole address, so without a copy the shopper's delivery
+ * address, name, and phone are gone for good — and switching back to delivery
+ * would silently ship the order to the Fotomax store.
+ */
+function readStoredDeliveryAddress(metadata: unknown): StoredDeliveryAddress | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const stored = (metadata as Record<string, unknown>)[DELIVERY_ADDRESS_METADATA_KEY]
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return null
+  const value = stored as Record<string, unknown>
+  const isFilled = (field: unknown) => typeof field === "string" && field.trim().length > 0
+  if (!isFilled(value.address_1) || !isFilled(value.city) || !isFilled(value.country_code)) return null
+  return value as StoredDeliveryAddress
+}
+
+function isSameAddress(left: unknown, right: StoredDeliveryAddress | null): boolean {
+  if (!left || typeof left !== "object" || !right) return false
+  const address = left as Record<string, unknown>
+  return address.address_1 === right.address_1
+    && address.city === right.city
+    && (address.postal_code ?? null) === (right.postal_code ?? null)
+}
+
 function hasAddress(value: unknown): boolean {
   if (!value || typeof value !== "object") return false
   const address = record(value)
@@ -358,7 +390,7 @@ export function createCheckoutAdapter(sdk: CheckoutSdk) {
         metadata: { fotomax_checkout_first_name: input.firstName, fotomax_checkout_last_name: input.lastName, fotomax_checkout_phone: input.phone },
       }
       if (input.address) {
-        body.shipping_address = {
+        const deliveryAddress = {
           first_name: input.firstName,
           last_name: input.lastName,
           address_1: input.address.address1,
@@ -367,6 +399,12 @@ export function createCheckoutAdapter(sdk: CheckoutSdk) {
           postal_code: input.address.postalCode,
           country_code: input.address.countryCode,
           phone: input.phone,
+        }
+        body.shipping_address = deliveryAddress
+        // Keep a copy so a later pickup selection cannot destroy it.
+        body.metadata = {
+          ...(body.metadata as Record<string, unknown>),
+          [DELIVERY_ADDRESS_METADATA_KEY]: deliveryAddress,
         }
       }
       const response = await sdk.store.cart.update(cartId, body, { fields: checkoutFields })
@@ -379,11 +417,30 @@ export function createCheckoutAdapter(sdk: CheckoutSdk) {
         throw new CheckoutError(input.kind === "pickup" ? "incompatible_branch" : "shipping_unavailable")
       }
       const raw = await retrieveRaw(cartId)
-      if (input.kind === "delivery" && !hasAddress(raw.shipping_address)) throw new CheckoutError("missing_delivery_address")
+      const storedDelivery = readStoredDeliveryAddress(raw.metadata)
+
+      if (input.kind === "delivery") {
+        // Coming back from pickup, shipping_address still holds the branch. Put
+        // the shopper's own address back before the guard, or we would happily
+        // ship a home delivery to the Fotomax store.
+        if (storedDelivery && !isSameAddress(raw.shipping_address, storedDelivery)) {
+          const restored = await sdk.store.cart.update(cartId, {
+            shipping_address: storedDelivery,
+          }, { fields: checkoutFields })
+          raw.shipping_address = record(restored.cart).shipping_address
+        }
+        if (!hasAddress(raw.shipping_address)) throw new CheckoutError("missing_delivery_address")
+      }
+
       if (input.kind === "pickup") {
         if (!option.pickupAddress) throw new CheckoutError("incompatible_branch")
+        const contact = record(raw.metadata ?? {})
         const updated = await sdk.store.cart.update(cartId, {
           shipping_address: {
+            // Branch staff need a name and phone to hand the order over.
+            first_name: contact.fotomax_checkout_first_name ?? storedDelivery?.first_name ?? null,
+            last_name: contact.fotomax_checkout_last_name ?? storedDelivery?.last_name ?? null,
+            phone: contact.fotomax_checkout_phone ?? storedDelivery?.phone ?? null,
             address_1: option.pickupAddress.address1,
             address_2: option.pickupAddress.address2,
             city: option.pickupAddress.city,
@@ -412,6 +469,12 @@ export function createCheckoutAdapter(sdk: CheckoutSdk) {
       if (!option || !option.compatible) throw new CheckoutError(option?.reasonCode === "retail_out_of_stock" ? "inventory_conflict" : "shipping_unavailable")
       if (option.kind === "delivery") {
         if (!hasAddress(raw.shipping_address)) throw new CheckoutError("missing_delivery_address")
+        // A delivery cart still carrying the branch address means a pickup
+        // selection overwrote it. Refuse rather than ship to the store.
+        const storedDelivery = readStoredDeliveryAddress(raw.metadata)
+        if (storedDelivery && !isSameAddress(raw.shipping_address, storedDelivery)) {
+          throw new CheckoutError("missing_delivery_address")
+        }
         return { cart, fulfillment: { kind: "delivery", shippingOptionId: option.id } }
       }
       if (!option.branchHandle) throw new CheckoutError("incompatible_branch")

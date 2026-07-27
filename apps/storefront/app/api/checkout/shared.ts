@@ -27,6 +27,11 @@ export function errorResponse(error: unknown, locale: Locale): NextResponse {
   if (code === "empty_cart") {
     return NextResponse.json({ error: { code, recoveryHref: localeHref(locale, "/") } }, { status: 409 })
   }
+  // An unprojectable cart cannot be checked out or shown; drop it so the shopper
+  // can start a fresh one rather than seeing a permanent 502.
+  if (code === "cart_unrecoverable") {
+    return clearCart(NextResponse.json({ error: { code } }, { status: 410 }))
+  }
   if (code) {
     const status = code === "invalid_checkout_input" ? 400 : code === "payment_session_failed" || code === "system_payment_unavailable" ? 502 : 422
     return NextResponse.json({ error: { code } }, { status })
