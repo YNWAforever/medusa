@@ -5,6 +5,7 @@ import {
 } from "@medusajs/framework/utils"
 import PhotoAsset from "./models/photo-asset"
 import PhotoAssetAccessAudit from "./models/photo-asset-access-audit"
+import PhotoImportSession from "./models/photo-import-session"
 import PhotoJob from "./models/photo-job"
 import PhotoJobVersion from "./models/photo-job-version"
 import PhotoUploadSession from "./models/photo-upload-session"
@@ -32,6 +33,7 @@ const PhotoProductionModuleServiceBase = MedusaService({
   PhotoJob,
   PhotoAsset,
   PhotoUploadSession,
+  PhotoImportSession,
   PhotoAssetAccessAudit,
   PhotoJobVersion,
   PrintItem,
