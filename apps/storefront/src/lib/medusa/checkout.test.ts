@@ -7,6 +7,7 @@ import {
   createCheckoutAdapter,
   parseContactInput,
   parseFulfillmentInput,
+  projectContact,
   projectShippingOptions,
 } from "./checkout"
 
@@ -69,6 +70,72 @@ const rawOptions = [
 ]
 
 const emptyCart = { id: "cart_123", currency_code: "hkd", items: [], subtotal: 0, shipping_total: 0, tax_total: 0, total: 0 }
+
+describe("projectContact", () => {
+  const metadata = {
+    fotomax_checkout_first_name: "Ada",
+    fotomax_checkout_last_name: "Lovelace",
+    fotomax_checkout_phone: "+85261234567",
+    fotomax_delivery_address: {
+      address_1: "1 Queen's Road",
+      address_2: "Flat A",
+      city: "Central",
+      postal_code: "999077",
+      country_code: "hk",
+    },
+  }
+
+  it("rehydrates the form from the saved delivery address", () => {
+    expect(projectContact(metadata, "ada@example.com")).toEqual({
+      email: "ada@example.com",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phone: "+85261234567",
+      address: {
+        address1: "1 Queen's Road",
+        address2: "Flat A",
+        city: "Central",
+        postalCode: "999077",
+        countryCode: "hk",
+      },
+    })
+  })
+
+  it("survives a pickup selection, which overwrites the cart address", () => {
+    // shipping_address now holds the branch, but metadata still has the copy.
+    expect(projectContact(metadata, "ada@example.com").address).toMatchObject({
+      address1: "1 Queen's Road",
+    })
+  })
+
+  it.each([undefined, null, {}, { fotomax_delivery_address: null }, "nope"])(
+    "reports no saved address for metadata %s",
+    (source) => {
+      expect(projectContact(source, null)).toEqual({
+        email: null,
+        firstName: null,
+        lastName: null,
+        phone: null,
+        address: null,
+      })
+    },
+  )
+
+  it("ignores a stored address missing its required parts", () => {
+    expect(
+      projectContact({ fotomax_delivery_address: { address_1: "1 Queen's Road" } }, null).address,
+    ).toBeNull()
+  })
+
+  it("falls back to the stored address for a name the contact keys lack", () => {
+    expect(
+      projectContact(
+        { fotomax_delivery_address: { ...metadata.fotomax_delivery_address, first_name: "Grace" } },
+        null,
+      ),
+    ).toMatchObject({ firstName: "Grace" })
+  })
+})
 
 describe("checkout adapter", () => {
   it("projects delivery and bilingual pickup options with compatibility reasons", () => {

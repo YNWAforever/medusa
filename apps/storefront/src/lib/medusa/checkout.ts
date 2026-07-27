@@ -73,9 +73,22 @@ export interface PaymentView {
   status: string
 }
 
+/**
+ * What the shopper already told us, so the form can be rehydrated after a
+ * reload or a pickup selection instead of coming back blank.
+ */
+export interface CheckoutContactView {
+  email: string | null
+  firstName: string | null
+  lastName: string | null
+  phone: string | null
+  address: CheckoutAddress | null
+}
+
 export interface CheckoutView extends CheckoutState {
   shippingOptions: ShippingOptionView[]
   paymentProviderId: string | null
+  contact: CheckoutContactView
 }
 
 export interface OrderConfirmationView {
@@ -278,6 +291,33 @@ function readStoredDeliveryAddress(metadata: unknown): StoredDeliveryAddress | n
   return value as StoredDeliveryAddress
 }
 
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null
+}
+
+export function projectContact(metadata: unknown, email: unknown): CheckoutContactView {
+  const source = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata as Record<string, unknown>
+    : {}
+  const stored = readStoredDeliveryAddress(source)
+
+  return {
+    email: optionalString(email),
+    firstName: optionalString(source.fotomax_checkout_first_name) ?? optionalString(stored?.first_name),
+    lastName: optionalString(source.fotomax_checkout_last_name) ?? optionalString(stored?.last_name),
+    phone: optionalString(source.fotomax_checkout_phone) ?? optionalString(stored?.phone),
+    address: stored
+      ? {
+        address1: stored.address_1,
+        address2: optionalString(stored.address_2),
+        city: stored.city,
+        postalCode: optionalString(stored.postal_code) ?? "",
+        countryCode: "hk",
+      }
+      : null,
+  }
+}
+
 function isSameAddress(left: unknown, right: StoredDeliveryAddress | null): boolean {
   if (!left || typeof left !== "object" || !right) return false
   const address = left as Record<string, unknown>
@@ -381,6 +421,7 @@ export function createCheckoutAdapter(sdk: CheckoutSdk) {
         blockers: [],
         shippingOptions,
         paymentProviderId,
+        contact: projectContact(cart.metadata, cart.email),
       }
     },
 
