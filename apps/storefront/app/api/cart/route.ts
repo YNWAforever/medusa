@@ -1,6 +1,10 @@
 ﻿import { NextRequest, NextResponse } from "next/server"
 import { createStoreSdk } from "../../../src/lib/medusa/client"
-import { createCartAdapter, emptyCartView } from "../../../src/lib/medusa/cart"
+import {
+  createCartAdapter,
+  emptyCartView,
+  isCartUnrecoverable,
+} from "../../../src/lib/medusa/cart"
 import { CART_COOKIE, cartCookieOptions } from "../../../src/lib/medusa/session"
 
 function errorStatus(error: unknown): number | null {
@@ -23,8 +27,9 @@ export async function GET(request: NextRequest) {
     const adapter = createCartAdapter(await createStoreSdk())
     return NextResponse.json({ cart: await adapter.retrieve(cartId) })
   } catch (error) {
-    if (errorStatus(error) === 404) {
-      const response = NextResponse.json({ error: { code: "cart_expired" } }, { status: 410 })
+    if (errorStatus(error) === 404 || isCartUnrecoverable(error)) {
+      const code = isCartUnrecoverable(error) ? "cart_unrecoverable" : "cart_expired"
+      const response = NextResponse.json({ error: { code } }, { status: 410 })
       response.cookies.set(CART_COOKIE, "", { ...cartCookieOptions, maxAge: 0 })
       return response
     }

@@ -9,6 +9,7 @@ import {
   CartError,
   createCartAdapter,
   emptyCartView,
+  isCartUnrecoverable,
   parseAddCartItemInput,
   parseQuantityInput,
   parseUpdateCartItemInput,
@@ -44,6 +45,43 @@ const rawCart = {
 function cartResponse(cart = rawCart) {
   return { cart }
 }
+
+function cartWithLine(overrides: Record<string, unknown>) {
+  return { ...rawCart, items: [{ ...rawCart.items[0], ...overrides }] }
+}
+
+describe("unprojectable carts", () => {
+  it.each([
+    ["a product with no commerce_mode", { variant: { product: { metadata: {} } } }],
+    ["an unknown commerce_mode", { variant: { product: { metadata: { commerce_mode: "deferred" } } } }],
+    ["a missing variant id", { variant_id: undefined }],
+    ["a missing title", { title: "" }],
+    ["a negative amount", { unit_price: -1 }],
+  ])("reports %s as a recoverable CartError, not a bare Error", (_label, overrides) => {
+    let thrown: unknown
+
+    try {
+      projectCart(cartWithLine(overrides))
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(CartError)
+    expect((thrown as CartError).code).toBe("cart_unrecoverable")
+    expect(isCartUnrecoverable(thrown)).toBe(true)
+  })
+
+  it("reports a non-HKD cart as recoverable", () => {
+    expect(() => projectCart({ ...rawCart, currency_code: "usd" })).toThrow(CartError)
+    expect(isCartUnrecoverable(new CartError("cart_unrecoverable"))).toBe(true)
+  })
+
+  it("does not treat ordinary cart errors as unrecoverable", () => {
+    expect(isCartUnrecoverable(new CartError("invalid_cart_input"))).toBe(false)
+    expect(isCartUnrecoverable(new CartError("cart_region_unavailable"))).toBe(false)
+    expect(isCartUnrecoverable(new Error("boom"))).toBe(false)
+  })
+})
 
 function createSdk() {
   const cart = {
