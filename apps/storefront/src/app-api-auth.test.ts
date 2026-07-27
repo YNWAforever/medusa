@@ -129,11 +129,16 @@ describe("customer auth BFF", () => {
     expect(JSON.stringify(json)).not.toContain("jwt_customer")
   })
 
-  it("logout clears only the customer token and preserves the guest cart cookie", async () => {
+  it("logout expires the customer token and the cart cookie together", async () => {
     const response = await logout()
 
     expect(response.status).toBe(200)
     expect(response.cookies.get(CUSTOMER_COOKIE)?.value).toBe("")
-    expect(response.cookies.get("fm_cart_id")).toBeUndefined()
+    expect(response.cookies.get(CUSTOMER_COOKIE)?.maxAge).toBe(0)
+
+    // Login calls Medusa transferCart, so the cart belongs to the customer for
+    // good. Keeping fm_cart_id would attribute the next guest's order to them.
+    expect(response.cookies.get("fm_cart_id")?.value).toBe("")
+    expect(response.cookies.get("fm_cart_id")?.maxAge).toBe(0)
   })
 })
