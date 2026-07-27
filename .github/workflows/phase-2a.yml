@@ -20,7 +20,10 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Measured on run 30251084509: npm ci 25m on a cold cache, canonical checks
+    # 2m, container build 18m+. A full pass lands around 60m, so this is a
+    # runaway backstop rather than a target.
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:16-alpine
