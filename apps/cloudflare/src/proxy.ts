@@ -2,6 +2,59 @@ export interface ContainerStub {
   fetch(request: Request): Promise<Response>
 }
 
+export const ADMIN_GATE_HEADER = "x-fotomax-admin-gate"
+
+const adminPathPrefixes = ["/app", "/admin", "/auth/user"] as const
+
+export function isAdminPath(pathname: string): boolean {
+  return adminPathPrefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )
+}
+
+function constantTimeEquals(left: string, right: string): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  let mismatch = 0
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index)
+  }
+
+  return mismatch === 0
+}
+
+/**
+ * Deny the Medusa Admin dashboard, the admin API, and the admin login endpoint
+ * unless the caller presents the shared gate secret.
+ *
+ * Returns an opaque 404 rather than 403 so the Worker never advertises that an
+ * admin surface exists. When the secret is unset the gate stays fully closed for
+ * admin paths only — store traffic keeps flowing, because a missing admin secret
+ * must not take the storefront down.
+ */
+export function denyAdminRequest(
+  request: Request,
+  expectedSecret: string | undefined,
+): Response | null {
+  if (!isAdminPath(new URL(request.url).pathname)) {
+    return null
+  }
+
+  const expected = expectedSecret?.trim()
+  const presented = request.headers.get(ADMIN_GATE_HEADER)?.trim()
+
+  if (expected && presented && constantTimeEquals(presented, expected)) {
+    return null
+  }
+
+  return new Response(null, {
+    status: 404,
+    headers: { "cache-control": "no-store" },
+  })
+}
+
 export type ResolveContainer = () => ContainerStub
 
 export interface ProxyLogEvent {

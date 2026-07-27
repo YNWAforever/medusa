@@ -57,6 +57,45 @@ describe("Medusa runtime environment", () => {
     ).toThrow("MEDUSA_WORKER_MODE")
   })
 
+  it.each(["preview", "staging", "production", "qa"])(
+    "requires an explicit DISABLE_MEDUSA_ADMIN when NODE_ENV is %s",
+    (nodeEnv) => {
+      expect(() =>
+        loadRuntimeEnv({
+          ...explicitRuntimeEnv,
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: "postgres://db/fotomax",
+          REDIS_URL: "redis://cache:6379",
+        }),
+      ).toThrow("DISABLE_MEDUSA_ADMIN")
+    },
+  )
+
+  it.each(["1", "yes", "off", "disabled"])(
+    "rejects the unsupported DISABLE_MEDUSA_ADMIN value %s",
+    (value) => {
+      expect(() =>
+        loadRuntimeEnv({
+          ...explicitRuntimeEnv,
+          DATABASE_URL: "postgres://db/fotomax",
+          REDIS_URL: "redis://cache:6379",
+          DISABLE_MEDUSA_ADMIN: value,
+        }),
+      ).toThrow("DISABLE_MEDUSA_ADMIN")
+    },
+  )
+
+  it("accepts an explicit production opt-in to the admin dashboard", () => {
+    expect(
+      loadRuntimeEnv({
+        ...explicitRuntimeEnv,
+        DATABASE_URL: "postgres://db/fotomax",
+        REDIS_URL: "redis://cache:6379",
+        DISABLE_MEDUSA_ADMIN: " FALSE ",
+      }),
+    ).toMatchObject({ disableAdmin: false })
+  })
+
   it.each([undefined, "development", "test"])(
     "uses local defaults when NODE_ENV is %s",
     (nodeEnv) => {

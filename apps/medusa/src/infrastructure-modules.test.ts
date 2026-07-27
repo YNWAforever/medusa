@@ -13,6 +13,7 @@ const deployedEnv = {
   JWT_SECRET: "jwt-secret",
   COOKIE_SECRET: "cookie-secret",
   REDIS_URL: "redis://cache:6379",
+  DISABLE_MEDUSA_ADMIN: "false",
 } as const
 
 describe("Medusa infrastructure modules", () => {
