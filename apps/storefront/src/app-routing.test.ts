@@ -84,4 +84,21 @@ describe("App Router document boundaries", () => {
     expect(localeNotFound).toContain("<LocalizedNotFound locale={locale} />")
     expect(nextConfig).toContain("globalNotFound: true")
   })
+
+  it("catches a locale-layout throw in a full-document error boundary", () => {
+    const globalError = readAppFile("global-error.tsx")
+
+    // The catalog fetch lives in [locale]/layout.tsx, so only a global boundary
+    // rendering its own document can catch it.
+    expect(globalError).toContain('"use client"')
+    expect(globalError).toContain('<html lang="zh-HK">')
+    expect(globalError).toContain("<body>")
+    expect(globalError).toContain("reset()")
+    expect(globalError).toContain('href="/zh-HK"')
+    expect(globalError).toContain('href="/en"')
+
+    // Never surface Medusa internals or a stack digest to the shopper.
+    expect(globalError).not.toContain("error.message")
+    expect(globalError).not.toContain("error.digest")
+  })
 })
