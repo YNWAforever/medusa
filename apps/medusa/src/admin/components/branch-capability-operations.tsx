@@ -1,0 +1,20 @@
+import { useEffect, useState } from "react"
+import { Button, Heading, Input, Switch, Text } from "@medusajs/ui"
+
+type Branch = { id: string; handle: string; name_en: string; name_zh_hk: string; pickup_enabled: boolean; test_only: boolean; lead_time_business_days: number; supported_print_skus: string[] }
+
+export function BranchCapabilityOperations() {
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [editing, setEditing] = useState<Branch | null>(null)
+  const [message, setMessage] = useState("")
+  const load = async () => { const response = await fetch("/admin/branch-capabilities", { credentials: "include" }); const payload = await response.json(); if (!response.ok) throw new Error(payload.code); setBranches(payload.branch_capabilities) }
+  useEffect(() => { void load().catch((error) => setMessage(error.message)) }, [])
+  const save = async () => {
+    if (!editing) return
+    const response = await fetch(`/admin/branch-capabilities/${editing.id}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supportedPrintSkus: editing.supported_print_skus, leadTimeBusinessDays: editing.lead_time_business_days, pickupEnabled: editing.pickup_enabled }) })
+    const payload = await response.json()
+    if (!response.ok) { setMessage(payload.code ?? "branch_update_failed"); return }
+    setEditing(null); setMessage(""); await load()
+  }
+  return <div className="min-h-full bg-ui-bg-base"><header className="border-b border-ui-border-base px-6 py-4"><Heading level="h1">Branch capabilities</Heading><Text size="small" className="text-ui-fg-subtle">Photo-print SKU support and pickup lead times</Text>{message && <Text size="small" className="mt-2 text-ui-fg-error">{message}</Text>}</header><div className="overflow-auto"><table className="w-full text-left text-sm"><thead className="bg-ui-bg-subtle"><tr><th className="px-5 py-2">Branch</th><th className="px-5 py-2">Supported SKUs</th><th className="px-5 py-2">Lead time</th><th className="px-5 py-2">Pickup</th><th className="px-5 py-2"></th></tr></thead><tbody>{branches.map((branch) => <tr key={branch.id} className="border-t border-ui-border-base"><td className="px-5 py-3"><div className="font-medium">{branch.name_en}</div><div className="text-xs text-ui-fg-subtle">{branch.handle} · test only</div></td><td className="px-5 py-3">{branch.supported_print_skus.join(", ")}</td><td className="px-5 py-3">{branch.lead_time_business_days} business days</td><td className="px-5 py-3">{branch.pickup_enabled ? "Enabled" : "Disabled"}</td><td className="px-5 py-3 text-right"><Button size="small" variant="secondary" onClick={() => setEditing({ ...branch, supported_print_skus: [...branch.supported_print_skus] })}>Edit</Button></td></tr>)}</tbody></table></div>{editing && <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="branch-dialog-title"><div className="w-full max-w-lg rounded bg-ui-bg-base p-5 shadow-elevation-modal"><Heading id="branch-dialog-title" level="h2">Edit {editing.name_en}</Heading><label className="mt-4 block text-sm font-medium">Supported photo-print SKUs</label><Input className="mt-1" value={editing.supported_print_skus.join(", ")} onChange={(event) => setEditing({ ...editing, supported_print_skus: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /><label className="mt-4 block text-sm font-medium">Lead time in business days</label><Input className="mt-1" type="number" min={1} max={30} value={editing.lead_time_business_days} onChange={(event) => setEditing({ ...editing, lead_time_business_days: Number(event.target.value) })} /><label className="mt-4 flex items-center justify-between text-sm font-medium"><span>Pickup enabled</span><Switch checked={editing.pickup_enabled} onCheckedChange={(checked) => setEditing({ ...editing, pickup_enabled: checked })} /></label><div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></div></div></div>}</div>
+}

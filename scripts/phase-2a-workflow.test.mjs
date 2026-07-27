@@ -6,6 +6,7 @@ const workflow = readFileSync(
   new URL("../.github/workflows/phase-2a.yml", import.meta.url),
   "utf8",
 )
+const compose = readFileSync(new URL("../compose.yaml", import.meta.url), "utf8")
 
 test("runs the canonical check against a healthy seeded Medusa backend", () => {
   const secondSeed = workflow.lastIndexOf("- run: npm run seed:medusa")
@@ -44,8 +45,13 @@ test("runs the canonical check against a healthy seeded Medusa backend", () => {
 
 test("gates pull requests and the integration branch, not just the feature branch", () => {
   assert.match(workflow, /^\s*pull_request:\s*$/m)
-  assert.match(workflow, /branches:.*codex\/fotomax-foundation/)
-  assert.match(workflow, /branches:.*codex\/fotomax-storefront/)
+
+  // Accept either the inline `branches: [a, b]` form or a YAML list, so the
+  // assertion survives reformatting when a branch is added.
+  const branches = workflow.slice(workflow.indexOf("branches:"), workflow.indexOf("jobs:"))
+  for (const branch of ["codex/fotomax-foundation", "codex/fotomax-storefront"]) {
+    assert.ok(branches.includes(branch), `push trigger is missing ${branch}`)
+  }
 })
 
 test("bounds runtime, concurrency, and token scope", () => {
@@ -69,5 +75,33 @@ test("builds the container offline before the Wrangler deployment dry-run", () =
   assert.doesNotMatch(
     workflow,
     /^\s*- run: npm run cloudflare:container:build\r?$/m,
+  )
+})
+
+test("runs Phase 2B photo verification against private S3-compatible storage", () => {
+  assert.match(workflow, /minio\/minio:/)
+  assert.match(workflow, /mc anonymous set none/)
+  assert.match(workflow, /PHOTO_STORAGE_PROVIDER: "s3"/)
+  assert.match(workflow, /PHOTO_STORAGE_ENDPOINT: http:\/\/localhost:9002/)
+  assert.match(workflow, /PHOTO_STORAGE_BUCKET: fotomax-photo-private/)
+  assert.match(workflow, /PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false"/)
+  assert.match(
+    workflow,
+    /MINIO_API_CORS_ALLOW_ORIGIN=http:\/\/127\.0\.0\.1:3100,http:\/\/localhost:3100/,
+  )
+  assert.match(
+    workflow,
+    /^\s*- run: npm run test:integration --workspace @fotomax\/medusa\s*$/m,
+  )
+  assert.doesNotMatch(
+    workflow,
+    /test:integration --workspace @fotomax\/medusa -- photo-production\.spec\.ts photo-security\.spec\.ts/,
+  )
+  assert.match(compose, /PHOTO_STORAGE_PROVIDER: "s3"/)
+  assert.match(compose, /minio\/minio:/)
+  assert.match(compose, /mc anonymous set none/)
+  assert.match(
+    compose,
+    /MINIO_API_CORS_ALLOW_ORIGIN: http:\/\/127\.0\.0\.1:3100,http:\/\/localhost:3100/,
   )
 })

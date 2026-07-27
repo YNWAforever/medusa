@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import Link from "next/link"
 import { ChevronDown, ShoppingBag, Trash2 } from "lucide-react"
@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { t } from "@fotomax/shared"
 import { formatCatalogMoney } from "../lib/catalog-filters"
 import type { Locale } from "../lib/medusa/contracts"
-import { getCartSubtotal } from "../lib/cart-state"
+import { getCartSubtotal, groupVisualCartLines } from "../lib/cart-state"
 import { localeHref } from "../lib/locales"
 import { useCart } from "./cart-provider"
 
@@ -20,6 +20,7 @@ export function CartDrawer({ locale }: { locale: Locale }) {
   const collapseButtonRef = useRef<HTMLButtonElement>(null)
   const reopenButtonRef = useRef<HTMLButtonElement>(null)
   const itemCount = items.reduce((total, item) => total + item.quantity, 0)
+  const visualGroups = groupVisualCartLines(items)
 
   useEffect(() => {
     if (!focusTarget) {

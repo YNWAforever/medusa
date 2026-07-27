@@ -40,6 +40,7 @@ export interface CartLineView {
   quantity: number
   unitPrice: MoneyView
   subtotal: MoneyView
+  photoJobId?: string | null
   photoJobVersionId: string | null
   photoCount: number | null
 }

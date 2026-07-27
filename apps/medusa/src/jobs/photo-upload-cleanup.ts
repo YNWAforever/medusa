@@ -1,0 +1,218 @@
+import type { MedusaContainer } from "@medusajs/framework/types";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import { PHOTO_PRODUCTION_MODULE } from "../modules/photo-production";
+import { PHOTO_STORAGE_MODULE } from "../modules/photo-storage";
+import { photoObjectRef } from "../modules/photo-storage/types";
+
+export const PHOTO_UPLOAD_CLEANUP_BATCH = 100;
+type Dependencies = {
+  service: any;
+  storage: any;
+  logger: { info(message: string): void; warn(message: string): void };
+  now?: Date;
+  batchSize?: number;
+};
+function first<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+}
+function event(
+  logger: Dependencies["logger"],
+  level: "info" | "warn",
+  code: string,
+  fields: Record<string, string>,
+) {
+  logger[level](
+    [
+      `code=${code}`,
+      ...Object.entries(fields).map(([key, value]) => `${key}=${value}`),
+    ].join(" "),
+  );
+}
+
+function selectCleanupSessions<T extends { id: string }>(
+  retryable: T[],
+  active: T[],
+  batchSize: number,
+): T[] {
+  const limit = Math.max(0, Math.floor(batchSize));
+  const retryQuota = Math.floor(limit / 2);
+  const activeQuota = limit - retryQuota;
+  const selected: T[] = [];
+  const seen = new Set<string>();
+  const append = (candidates: T[]) => {
+    for (const candidate of candidates) {
+      if (selected.length >= limit) return;
+      if (seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      selected.push(candidate);
+    }
+  };
+
+  append(retryable.slice(0, retryQuota));
+  append(active.slice(0, activeQuota));
+  append(retryable.slice(retryQuota));
+  append(active.slice(activeQuota));
+  return selected;
+}
+
+export async function runPhotoUploadCleanup({
+  service,
+  storage,
+  logger,
+  now = new Date(),
+  batchSize = PHOTO_UPLOAD_CLEANUP_BATCH,
+}: Dependencies) {
+  const summary = { expiredSessions: 0, deletedAssets: 0, failures: 0 };
+  const retryableSessions: any[] = await service.listPhotoUploadSessions(
+    { status: "expired", aborted_at: null },
+    { take: batchSize, order: { expires_at: "ASC" } },
+  );
+  const activeSessions: any[] = await service.listPhotoUploadSessions(
+    { status: "active", expires_at: { $lt: now } },
+    { take: batchSize, order: { expires_at: "ASC" } },
+  );
+  const sessions = selectCleanupSessions(
+    retryableSessions,
+    activeSessions,
+    batchSize,
+  );
+  for (const session of sessions) {
+    let asset: any;
+    try {
+      asset = await service.retrievePhotoAsset(session.asset_id);
+      if (session.status === "active") {
+        const claimed = first(
+          await service.updatePhotoUploadSessions({
+            selector: { id: session.id, status: "active" },
+            data: { status: "expired" },
+          }),
+        );
+        if (!claimed) continue;
+      } else if (session.status !== "expired" || session.aborted_at) {
+        continue;
+      }
+      const ref = photoObjectRef(session, asset.object_key);
+      if (
+        session.upload_strategy === "multipart" &&
+        ref.provider === "s3" &&
+        session.provider_upload_id
+      ) {
+        await storage.abortLegacyMultipart({
+          provider: ref.provider,
+          key: ref.key,
+          uploadId: session.provider_upload_id,
+        });
+      } else if (session.upload_strategy === "single-put") {
+        await storage.delete([ref]);
+      }
+      if (asset.status === "uploading")
+        await service.updatePhotoAssets({
+          selector: { id: asset.id, status: "uploading" },
+          data: {
+            status: "failed",
+            failure_code: "upload_expired",
+            failed_at: now,
+          },
+        });
+      const finalized = first(
+        await service.updatePhotoUploadSessions({
+          selector: {
+            id: session.id,
+            status: "expired",
+            aborted_at: null,
+          },
+          data: { aborted_at: now },
+        }),
+      );
+      if (!finalized) throw new Error("conditional_update_empty");
+      summary.expiredSessions += 1;
+      event(logger, "info", "photo_cleanup_session_expired", {
+        session_id: session.id,
+        asset_id: asset.id,
+        object_key: asset.object_key,
+      });
+    } catch {
+      summary.failures += 1;
+      event(logger, "warn", "photo_cleanup_provider_retry", {
+        session_id: session.id,
+        asset_id: asset?.id ?? "unknown",
+        object_key: asset?.object_key ?? "unknown",
+      });
+    }
+  }
+
+  const deletedAssets = await service.listPhotoAssets(
+    { status: "deleted", provider_cleanup_completed_at: null },
+    { take: batchSize, order: { updated_at: "ASC" }, withDeleted: true },
+  );
+  const candidates = deletedAssets.slice(0, batchSize);
+  for (const asset of candidates) {
+    try {
+      const assetSessions = await service.listPhotoUploadSessions({
+        asset_id: asset.id,
+      });
+      for (const session of assetSessions) {
+        const ref = photoObjectRef(session, asset.object_key);
+        if (
+          session.upload_strategy === "multipart" &&
+          ref.provider === "s3" &&
+          session.provider_upload_id
+        ) {
+          await storage.abortLegacyMultipart({
+            provider: ref.provider,
+            key: ref.key,
+            uploadId: session.provider_upload_id,
+          });
+        }
+      }
+      const refs = [asset.object_key, asset.preview_key]
+        .filter((key): key is string => typeof key === "string" && key.length > 0)
+        .map((key) => photoObjectRef(asset, key));
+      if (refs.length) await storage.delete(refs);
+      const updated = first(
+        await service.updatePhotoAssets({
+          selector: { id: asset.id },
+          data: {
+            status: "deleted",
+            deleted_at: asset.deleted_at ?? now,
+            provider_cleanup_completed_at: now,
+          },
+        }),
+      );
+      if (!updated) throw new Error("conditional_update_empty");
+      summary.deletedAssets += 1;
+      event(logger, "info", "photo_cleanup_asset_deleted", {
+        asset_id: asset.id,
+        job_id: asset.job_id,
+        object_key: asset.object_key,
+      });
+    } catch {
+      await service
+        .updatePhotoAssets({
+          selector: { id: asset.id },
+          data: { failure_code: "provider_cleanup_retry" },
+        })
+        .catch(() => undefined);
+      summary.failures += 1;
+      event(logger, "warn", "photo_cleanup_asset_retry", {
+        asset_id: asset.id,
+        job_id: asset.job_id,
+        object_key: asset.object_key,
+      });
+    }
+  }
+  return summary;
+}
+
+export default async function photoUploadCleanup(container: MedusaContainer) {
+  await runPhotoUploadCleanup({
+    service: container.resolve(PHOTO_PRODUCTION_MODULE),
+    storage: container.resolve(PHOTO_STORAGE_MODULE),
+    logger: container.resolve(ContainerRegistrationKeys.LOGGER),
+  });
+}
+
+export const config = {
+  name: "photo-upload-cleanup",
+  schedule: "*/15 * * * *",
+};
