@@ -16,6 +16,20 @@ export class Migration20260719000100 extends Migration {
     );
   }
 
+  /**
+   * The two `update` statements in `up()` are not reversed.
+   *
+   * Clearing `deleted_at` is intentional, not an oversight: the cleanup index
+   * above matches on `status = 'deleted'`, and Medusa's soft-delete filter
+   * (`deleted_at is null`) would hide exactly the rows the cleanup job needs to
+   * find. This migration moves deletion tracking from the ORM's soft-delete to
+   * `status` plus `provider_cleanup_completed_at`.
+   *
+   * It touches no rows in a real deployment — `photo_asset` is created by
+   * Migration20260717000100, two migrations earlier in this same phase — so the
+   * asymmetry only affects a development database that accumulated soft-deleted
+   * assets mid-phase.
+   */
   async down(): Promise<void> {
     this.addSql('drop index if exists "IDX_photo_asset_cleanup_pending";');
     this.addSql(

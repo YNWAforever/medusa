@@ -10,6 +10,19 @@ export class Migration20260720000100 extends Migration {
     this.addSql('alter table "photo_asset" alter column "object_key" drop not null, add column if not exists "media_deleted_at" timestamptz null;')
   }
 
+  /**
+   * `object_key` is deliberately left nullable on the way down.
+   *
+   * Do not "fix" this by adding `alter column "object_key" set not null`. The
+   * retention job (src/jobs/photo-retention.ts) nulls `object_key` once it has
+   * deleted the stored object, keeping the row for audit. Restoring the
+   * constraint therefore throws as soon as retention has run even once, and the
+   * only way to satisfy it would be to delete those audit rows.
+   *
+   * The consequence is known and accepted: `medusa db:generate` reports drift on
+   * this column after a rollback. Rolling Phase 2B back properly means rolling
+   * past Migration20260717000100, which drops the table outright.
+   */
   async down(): Promise<void> {
     this.addSql(`update "photo_job" set "status" = 'ordered' where "status" = 'fulfilled';`)
     this.addSql('alter table "photo_job" drop constraint if exists "photo_job_status_check";')
