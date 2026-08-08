@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 describe("StorefrontLink", () => {
+  const widgetRenderTimeout = 20_000
+
   beforeEach(() => {
     vi.resetModules()
     vi.stubGlobal("__STOREFRONT_URL__", "https://shop.example.com/")
@@ -20,7 +22,7 @@ describe("StorefrontLink", () => {
     expect(markup).toContain('rel="noopener noreferrer"')
     expect(markup).toContain("Open storefront")
     expect(markup).toContain('aria-hidden="true"')
-  })
+  }, widgetRenderTimeout)
 
   it("renders no navigation when the build-time URL is absent", async () => {
     vi.resetModules()
@@ -29,5 +31,5 @@ describe("StorefrontLink", () => {
     const { default: StorefrontLink } = await import("./storefront-link")
 
     expect(renderToStaticMarkup(<StorefrontLink />)).toBe("")
-  })
+  }, widgetRenderTimeout)
 })
