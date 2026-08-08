@@ -11,6 +11,7 @@ export interface RuntimeEnv {
   authCors: string
   jwtSecret: string
   cookieSecret: string
+  storefrontUrl: string
 }
 
 export interface MedusaRuntimeEnvSource {
@@ -25,11 +26,17 @@ export interface MedusaRuntimeEnvSource {
   AUTH_CORS?: string
   JWT_SECRET?: string
   COOKIE_SECRET?: string
+  MEDUSA_STOREFRONT_URL?: string
 }
 
 export type MedusaRuntimeEnv = Pick<
   RuntimeEnv,
-  "storeCors" | "adminCors" | "authCors" | "jwtSecret" | "cookieSecret"
+  | "storeCors"
+  | "adminCors"
+  | "authCors"
+  | "jwtSecret"
+  | "cookieSecret"
+  | "storefrontUrl"
 >
 
 const localDefaults: RuntimeEnv = {
@@ -44,6 +51,7 @@ const localDefaults: RuntimeEnv = {
     "http://localhost:9000,http://localhost:3000,http://localhost:8000",
   jwtSecret: "fotomax-local-jwt-secret",
   cookieSecret: "fotomax-local-cookie-secret",
+  storefrontUrl: "http://localhost:3000",
 }
 
 function isLocalEnvironment(nodeEnv: string | undefined): boolean {
@@ -107,6 +115,11 @@ export function loadRuntimeEnv(source: MedusaRuntimeEnvSource): RuntimeEnv {
       "COOKIE_SECRET",
       localDefaults.cookieSecret,
     ),
+    storefrontUrl: resolveRequiredValue(
+      source,
+      "MEDUSA_STOREFRONT_URL",
+      localDefaults.storefrontUrl,
+    ),
   }
 }
 
@@ -122,6 +135,11 @@ export function resolveMedusaRuntimeEnv(
       source,
       "COOKIE_SECRET",
       localDefaults.cookieSecret,
+    ),
+    storefrontUrl: resolveRequiredValue(
+      source,
+      "MEDUSA_STOREFRONT_URL",
+      localDefaults.storefrontUrl,
     ),
   }
 }
