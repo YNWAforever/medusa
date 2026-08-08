@@ -19,6 +19,7 @@ module.exports = defineConfig({
   },
   admin: {
     disable: runtimeEnv.disableAdmin,
+    storefrontUrl: runtimeEnv.storefrontUrl,
   },
   modules: [
     ...buildInfrastructureModules(runtimeEnv),
