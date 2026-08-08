@@ -20,6 +20,14 @@
       "../../packages/shared/src/**/*.ts": "cjs"
     }
   },
-  "include": ["medusa-config.ts", "src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/scripts/**/*.ts"]
+  "include": [
+    "medusa-config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/scripts/**/*.ts"
+  ]
 }
