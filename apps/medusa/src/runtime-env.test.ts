@@ -9,7 +9,7 @@ const explicitRuntimeEnv = {
   AUTH_CORS: "https://shop.example.com,https://admin.example.com",
   JWT_SECRET: "production-jwt-secret",
   COOKIE_SECRET: "production-cookie-secret",
-  MEDUSA_STOREFRONT_URL: "https://shop.example.com",
+  MEDUSA_STOREFRONT_URL: " https://shop.example.com ",
 }
 
 const requiredVariables = [
@@ -103,7 +103,7 @@ describe("Medusa runtime environment", () => {
       authCors: explicitRuntimeEnv.AUTH_CORS,
       jwtSecret: explicitRuntimeEnv.JWT_SECRET,
       cookieSecret: explicitRuntimeEnv.COOKIE_SECRET,
-      storefrontUrl: explicitRuntimeEnv.MEDUSA_STOREFRONT_URL,
+      storefrontUrl: "https://shop.example.com",
     })
   })
 })
