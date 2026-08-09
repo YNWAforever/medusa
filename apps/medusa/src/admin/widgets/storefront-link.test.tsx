@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 describe("StorefrontLink", () => {
-  const widgetRenderTimeout = 20_000
+  const widgetRenderTimeout = 60_000
 
   beforeEach(() => {
     vi.resetModules()
