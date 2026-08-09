@@ -1,14 +1,21 @@
 import { Container, getContainer, type StopParams } from "@cloudflare/containers"
 import { env as workerEnv } from "cloudflare:workers"
 
-import { proxyToMedusa } from "./proxy"
-import { buildContainerEnv, type RuntimeSecrets } from "./runtime"
+import { denyAdminRequest, proxyToMedusa } from "./proxy"
+import {
+  buildContainerEnv,
+  type ContainerSettings,
+  type RuntimeSecrets,
+  type WorkerSecrets,
+} from "./runtime"
 
-export type CloudflareBindings = RuntimeSecrets & {
-  FOTOMAX_MEDUSA: DurableObjectNamespace<FotomaxMedusaContainer>
-}
+export type CloudflareBindings = RuntimeSecrets &
+  ContainerSettings &
+  WorkerSecrets & {
+    FOTOMAX_MEDUSA: DurableObjectNamespace<FotomaxMedusaContainer>
+  }
 
-const runtimeEnv = workerEnv as unknown as RuntimeSecrets
+const runtimeEnv = workerEnv as unknown as RuntimeSecrets & ContainerSettings
 
 export class FotomaxMedusaContainer extends Container {
   defaultPort = 9000
@@ -34,7 +41,13 @@ export class FotomaxMedusaContainer extends Container {
 }
 
 export default {
-  fetch(request: Request, env: CloudflareBindings): Promise<Response> {
+  async fetch(request: Request, env: CloudflareBindings): Promise<Response> {
+    const denied = denyAdminRequest(request, env.ADMIN_GATE_SECRET)
+
+    if (denied) {
+      return denied
+    }
+
     return proxyToMedusa(request, () =>
       getContainer(env.FOTOMAX_MEDUSA, "fotomax-medusa-staging"),
     )

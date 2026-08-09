@@ -1,0 +1,478 @@
+import {
+  PhotoClientError,
+  type PhotoAssetView,
+  type PhotoJobView,
+  type PhotoUploadSessionView,
+  type UploadedPart,
+} from "./contracts";
+import type { PhotoClient } from "./client";
+export const MAX_PHOTO_FILES = 500;
+export const MAX_PHOTO_JOB_BYTES = 10 * 1024 ** 3;
+export const MAX_PHOTO_FILE_BYTES = 50 * 1024 ** 2;
+export interface UploadProgress {
+  uploadedBytes: number;
+  totalBytes: number;
+  percent: number;
+}
+export interface UploadResult {
+  assetId: string;
+  sessionId: string;
+}
+export interface UploadCompletionCheckpoint {
+  assetId: string;
+  sessionId: string;
+  etag: string;
+}
+export interface UploadCallbacks {
+  onProgress?: (progress: UploadProgress) => void;
+  onSession?: (
+    session: PhotoUploadSessionView,
+  ) => unknown;
+  completionCheckpoint?: UploadCompletionCheckpoint;
+  onCompletionPending?: (
+    checkpoint: UploadCompletionCheckpoint,
+  ) => unknown;
+  onTerminal?: (result: UploadResult) => unknown;
+  signal?: AbortSignal;
+}
+export interface RestoredUpload {
+  id: string;
+  name: string;
+  bytes: number;
+  status: "uploaded" | "failed";
+}
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+export function crc32cBase64(bytes: Uint8Array): string {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1)
+      crc = (crc >>> 1) ^ (0x82f63b78 & -(crc & 1));
+  }
+  crc = (crc ^ 0xffffffff) >>> 0;
+  return base64(
+    Uint8Array.from([
+      (crc >>> 24) & 255,
+      (crc >>> 16) & 255,
+      (crc >>> 8) & 255,
+      crc & 255,
+    ]),
+  );
+}
+export function validateSelection(
+  files: readonly File[],
+  existing: readonly Pick<PhotoAssetView, "expected_bytes" | "status">[] = [],
+): void {
+  const active = existing.filter((asset) => asset.status !== "deleted");
+  if (active.length + files.length > MAX_PHOTO_FILES)
+    throw new PhotoClientError("photo_asset_limit_exceeded");
+  if (files.some((file) => file.size > MAX_PHOTO_FILE_BYTES))
+    throw new PhotoClientError("photo_file_too_large");
+  const total =
+    active.reduce((sum, asset) => sum + asset.expected_bytes, 0) +
+    files.reduce((sum, file) => sum + file.size, 0);
+  if (total > MAX_PHOTO_JOB_BYTES)
+    throw new PhotoClientError("photo_job_bytes_exceeded");
+}
+export function restoreUploads(job: PhotoJobView): RestoredUpload[] {
+  return (job.assets ?? [])
+    .filter((asset) => asset.status === "uploaded" || asset.status === "failed")
+    .map((asset) => ({
+      id: asset.id,
+      name: asset.display_name,
+      bytes: asset.expected_bytes,
+      status: asset.status as "uploaded" | "failed",
+    }));
+}
+async function retry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      last = error;
+      if (error instanceof DOMException && error.name === "AbortError")
+        throw error;
+      if (
+        error instanceof PhotoClientError &&
+        error.status > 0 &&
+        error.status < 500 &&
+        error.status !== 429
+      )
+        throw error;
+    }
+  }
+  throw last;
+}
+async function signature(file: File): Promise<string> {
+  return base64(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
+}
+type CreateUploadInput = Parameters<PhotoClient["createUpload"]>[1];
+type ActiveUploadSession = Extract<
+  PhotoUploadSessionView,
+  { status: "active" }
+>;
+const MAX_REPLACEMENT_GENERATIONS = 5;
+
+function isUploadExpiredError(error: unknown): error is PhotoClientError {
+  return error instanceof PhotoClientError && error.code === "photo_upload_expired";
+}
+
+function isReplacementStateError(error: unknown): error is PhotoClientError {
+  return (
+    error instanceof PhotoClientError &&
+    (error.code === "photo_upload_expired" ||
+      error.code === "photo_upload_not_active")
+  );
+}
+
+function isSessionExpired(session: PhotoUploadSessionView): boolean {
+  if (session.status === "completed") return false;
+  const expiresAt = Date.parse(session.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function uploadPercent(uploadedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0 || uploadedBytes >= totalBytes) return 100;
+  return Math.min(99, Math.floor((uploadedBytes / totalBytes) * 100));
+}
+export type DirectPut = (
+  url: string,
+  file: File,
+  headers: Record<string, string>,
+  onProgress: (progress: UploadProgress) => void,
+  signal?: AbortSignal,
+) => Promise<string>;
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+export const putFileWithProgress: DirectPut = (
+  url,
+  file,
+  headers,
+  onProgress,
+  signal,
+) => {
+  if (signal?.aborted) return Promise.reject(abortError());
+
+  return new Promise<string>((resolve, reject) => {
+    let xhr: XMLHttpRequest;
+    try {
+      xhr = new XMLHttpRequest();
+    } catch {
+      reject(new PhotoClientError("photo_upload_failed"));
+      return;
+    }
+
+    let settled = false;
+    let uploadedBytes = 0;
+    const cleanup = () => signal?.removeEventListener("abort", onSignalAbort);
+    const settle = (result: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      result();
+    };
+    const fail = () =>
+      settle(() =>
+        reject(new PhotoClientError("photo_upload_failed", xhr.status))
+      );
+    const emitProgress = (loaded: number) => {
+      uploadedBytes = Math.max(
+        uploadedBytes,
+        Math.min(file.size, Math.max(0, loaded)),
+      );
+      onProgress({
+        uploadedBytes,
+        totalBytes: file.size,
+        percent: uploadPercent(uploadedBytes, file.size),
+      });
+    };
+    function onSignalAbort() {
+      if (settled) return;
+      xhr.abort();
+      settle(() => reject(abortError()));
+    }
+
+    signal?.addEventListener("abort", onSignalAbort, { once: true });
+    xhr.upload.onprogress = (event) => {
+      if (settled) return;
+      try {
+        emitProgress(event.loaded);
+      } catch {
+        fail();
+      }
+    };
+    xhr.onload = () => {
+      const etag = xhr.getResponseHeader("ETag")?.trim();
+      if (xhr.status < 200 || xhr.status >= 300 || !etag) {
+        fail();
+        return;
+      }
+      try {
+        if (uploadedBytes < file.size || file.size === 0) emitProgress(file.size);
+      } catch {
+        fail();
+        return;
+      }
+      settle(() => resolve(etag));
+    };
+    xhr.onerror = fail;
+    xhr.ontimeout = fail;
+    xhr.onabort = () => settle(() => reject(abortError()));
+
+    try {
+      xhr.open("PUT", url);
+      for (const [name, value] of Object.entries(headers))
+        xhr.setRequestHeader(name, value);
+      xhr.send(file);
+    } catch {
+      fail();
+    }
+  });
+};
+export class MultipartUploader {
+  constructor(
+    private readonly client: PhotoClient,
+    private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+    private readonly directPut: DirectPut = putFileWithProgress,
+  ) {}
+  async upload(
+    jobId: string,
+    file: File,
+    sourceIdempotencyKey: string,
+    callbacks: UploadCallbacks = {},
+  ): Promise<UploadResult> {
+    const input = {
+      filename: file.name,
+      reportedMime: file.type || "application/octet-stream",
+      bytes: file.size,
+      sourceIdempotencyKey,
+      signatureBase64: await signature(file),
+    };
+    let current: { session: PhotoUploadSessionView; generation: number };
+    try {
+      const session = await this.createUpload(jobId, input, callbacks);
+      current = { session, generation: 0 };
+    } catch (error) {
+      if (!isReplacementStateError(error)) throw error;
+      current = await this.findReplacement(
+        jobId,
+        input,
+        sourceIdempotencyKey,
+        callbacks,
+        1,
+      );
+    }
+
+    while (true) {
+      const { session, generation } = current;
+      if (session.status === "completed") {
+        const result = {
+          assetId: session.assetId,
+          sessionId: session.sessionId,
+        };
+        await callbacks.onTerminal?.(result);
+        return result;
+      }
+
+      if (isSessionExpired(session)) {
+        current = await this.findReplacement(
+          jobId,
+          input,
+          sourceIdempotencyKey,
+          callbacks,
+          generation + 1,
+          session,
+        );
+        continue;
+      }
+
+      try {
+        const result = await this.uploadSession(
+          jobId,
+          file,
+          session,
+          callbacks,
+        );
+        await callbacks.onTerminal?.(result);
+        return result;
+      } catch (error) {
+        if (!isUploadExpiredError(error) && !isSessionExpired(session))
+          throw error;
+        current = await this.findReplacement(
+          jobId,
+          input,
+          sourceIdempotencyKey,
+          callbacks,
+          generation + 1,
+          session,
+        );
+      }
+    }
+  }
+
+  private async createUpload(
+    jobId: string,
+    input: CreateUploadInput,
+    callbacks: UploadCallbacks,
+  ): Promise<PhotoUploadSessionView> {
+    const session = await retry(() =>
+      this.client.createUpload(jobId, input, callbacks.signal),
+    );
+    await callbacks.onSession?.(session);
+    return session;
+  }
+
+  private async findReplacement(
+    jobId: string,
+    input: CreateUploadInput,
+    sourceIdempotencyKey: string,
+    callbacks: UploadCallbacks,
+    startGeneration: number,
+    staleSession?: PhotoUploadSessionView,
+  ): Promise<{ session: PhotoUploadSessionView; generation: number }> {
+    if (staleSession)
+      await this.client
+        .abort(jobId, staleSession.sessionId)
+        .catch(() => undefined);
+
+    for (
+      let generation = startGeneration;
+      generation <= MAX_REPLACEMENT_GENERATIONS;
+      generation += 1
+    ) {
+      let session: PhotoUploadSessionView;
+      try {
+        session = await this.createUpload(
+          jobId,
+          {
+            ...input,
+            sourceIdempotencyKey: `${sourceIdempotencyKey}:replacement:${generation}`,
+          },
+          callbacks,
+        );
+      } catch (error) {
+        if (isReplacementStateError(error)) continue;
+        throw error;
+      }
+      if (session.status === "completed") return { session, generation };
+      if (!isSessionExpired(session)) return { session, generation };
+      await this.client.abort(jobId, session.sessionId).catch(() => undefined);
+    }
+
+    throw new PhotoClientError("photo_upload_failed", 409);
+  }
+  async abort(jobId: string, sessionId: string): Promise<void> {
+    await this.client.abort(jobId, sessionId);
+  }
+  private async uploadSession(
+    jobId: string,
+    file: File,
+    session: ActiveUploadSession,
+    callbacks: UploadCallbacks,
+  ): Promise<UploadResult> {
+    if (session.strategy === "single-put") {
+      const checkpoint = callbacks.completionCheckpoint;
+      const resumable =
+        checkpoint?.assetId === session.assetId &&
+        checkpoint.sessionId === session.sessionId &&
+        checkpoint.etag.trim().length > 0;
+      const etag = resumable
+        ? checkpoint.etag
+        : await this.directPut(
+            session.uploadUrl,
+            file,
+            session.requiredHeaders,
+            callbacks.onProgress ?? (() => {}),
+            callbacks.signal,
+          );
+      if (!resumable) {
+        await callbacks.onCompletionPending?.({
+          assetId: session.assetId,
+          sessionId: session.sessionId,
+          etag,
+        });
+      }
+      await this.client.complete(
+        jobId,
+        session.sessionId,
+        { strategy: "single-put", etag },
+        callbacks.signal,
+      );
+      return { assetId: session.assetId, sessionId: session.sessionId };
+    }
+
+    return this.uploadMultipartSession(
+      jobId,
+      file,
+      session,
+      callbacks.onProgress ?? (() => {}),
+      callbacks.signal,
+    );
+  }
+
+  private async uploadMultipartSession(
+    jobId: string,
+    file: File,
+    session: Extract<ActiveUploadSession, { strategy: "multipart" }>,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<UploadResult> {
+    const parts: UploadedPart[] = [];
+    let uploadedBytes = 0;
+    for (
+      let offset = 0, partNumber = 1;
+      offset < file.size;
+      offset += session.partSize, partNumber += 1
+    ) {
+      const blob = file.slice(
+        offset,
+        Math.min(offset + session.partSize, file.size),
+      );
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const checksumCRC32C = crc32cBase64(bytes);
+      const signed = await this.client.signPart(
+        jobId,
+        session.sessionId,
+        partNumber,
+        checksumCRC32C,
+        signal,
+      );
+      const response = await retry(() =>
+        this.fetcher(signed.url, {
+          method: "PUT",
+          body: blob,
+          headers: signed.requiredHeaders,
+          signal,
+        }).then((value) => {
+          if (!value.ok)
+            throw new PhotoClientError("photo_upload_failed", value.status);
+          return value;
+        }),
+      );
+      const etag = response.headers.get("etag");
+      if (!etag?.trim()) throw new PhotoClientError("photo_upload_failed");
+      parts.push({ partNumber, etag, checksumCRC32C });
+      uploadedBytes += blob.size;
+      onProgress({
+        uploadedBytes,
+        totalBytes: file.size,
+        percent: uploadPercent(uploadedBytes, file.size),
+      });
+    }
+    await this.client.complete(
+      jobId,
+      session.sessionId,
+      { strategy: "multipart", parts },
+      signal,
+    );
+    return { assetId: session.assetId, sessionId: session.sessionId };
+  }
+}

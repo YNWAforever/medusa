@@ -1,6 +1,68 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { proxyToMedusa } from "./proxy"
+import {
+  ADMIN_GATE_HEADER,
+  denyAdminRequest,
+  isAdminPath,
+  proxyToMedusa,
+} from "./proxy"
+
+const gateSecret = "admin-gate-secret"
+
+function adminRequest(path: string, secret?: string): Request {
+  return new Request(`https://api.example${path}`, {
+    headers: secret ? { [ADMIN_GATE_HEADER]: secret } : {},
+  })
+}
+
+describe("denyAdminRequest", () => {
+  it.each([
+    "/app",
+    "/app/orders",
+    "/admin",
+    "/admin/orders",
+    "/auth/user/emailpass",
+  ])("denies %s with an opaque 404 when no secret is presented", async (path) => {
+    const response = denyAdminRequest(adminRequest(path), gateSecret)
+
+    expect(response?.status).toBe(404)
+    expect(response?.headers.get("cache-control")).toBe("no-store")
+    expect(await response?.text()).toBe("")
+  })
+
+  it("allows an admin path carrying the correct gate secret", () => {
+    expect(denyAdminRequest(adminRequest("/app", gateSecret), gateSecret)).toBeNull()
+  })
+
+  it("denies an admin path carrying the wrong gate secret", () => {
+    expect(
+      denyAdminRequest(adminRequest("/app", "wrong"), gateSecret)?.status,
+    ).toBe(404)
+  })
+
+  it("stays closed for admin paths when the gate secret is unset", () => {
+    expect(denyAdminRequest(adminRequest("/app", gateSecret), undefined)?.status).toBe(404)
+    expect(denyAdminRequest(adminRequest("/app", ""), "   ")?.status).toBe(404)
+  })
+
+  it.each(["/store/products", "/store/carts", "/health", "/", "/application"])(
+    "never gates %s, so a missing admin secret cannot take the storefront down",
+    (path) => {
+      expect(denyAdminRequest(adminRequest(path), undefined)).toBeNull()
+    },
+  )
+})
+
+describe("isAdminPath", () => {
+  it("matches admin surfaces without matching lookalike store paths", () => {
+    expect(isAdminPath("/app")).toBe(true)
+    expect(isAdminPath("/admin/orders")).toBe(true)
+    expect(isAdminPath("/auth/user/emailpass")).toBe(true)
+    expect(isAdminPath("/application")).toBe(false)
+    expect(isAdminPath("/auth/customer/emailpass")).toBe(false)
+    expect(isAdminPath("/store/products")).toBe(false)
+  })
+})
 
 describe("proxyToMedusa", () => {
   it("forwards method, URL, body, and a generated request ID", async () => {

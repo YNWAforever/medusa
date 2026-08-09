@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+
+vi.mock("server-only", () => ({}))
 import { CART_COOKIE } from "./lib/medusa/session"
 import { CartError } from "./lib/medusa/cart"
 
@@ -64,6 +66,8 @@ vi.mock("./lib/medusa/cart", () => ({
   },
   createCartAdapter: () => ({ retrieve, createWithLine, addLine, updateLine, removeLine }),
   emptyCartView: () => ({ ...cart, id: null }),
+  isCartUnrecoverable: (error: unknown) =>
+    error instanceof Error && Reflect.get(error, "code") === "cart_unrecoverable",
   parseAddCartItemInput: (value: { variantId?: string; quantity?: number }) => {
     if (
       !value.variantId
@@ -123,6 +127,67 @@ beforeEach(() => {
   addLine.mockResolvedValue(cart)
   updateLine.mockResolvedValue(cart)
   removeLine.mockResolvedValue(cart)
+})
+
+describe("unprojectable cart recovery", () => {
+  function unrecoverable() {
+    return Object.assign(new Error("cart_unrecoverable"), {
+      code: "cart_unrecoverable",
+    })
+  }
+
+  it("drops the cookie on GET so the shopper is not stuck behind a permanent 502", async () => {
+    retrieve.mockRejectedValue(unrecoverable())
+
+    const response = await GET(request("/api/cart", { headers: cartCookie() }))
+
+    expect(response.status).toBe(410)
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "cart_unrecoverable" },
+    })
+    expect(response.cookies.get(CART_COOKIE)?.maxAge).toBe(0)
+  })
+
+  it("drops the cookie when adding to a poisoned cart", async () => {
+    addLine.mockRejectedValue(unrecoverable())
+
+    const response = await POST(
+      request("/api/cart/items", {
+        method: "POST",
+        body: JSON.stringify({ variantId: "variant_123", quantity: 1 }),
+        headers: { "content-type": "application/json", ...cartCookie() },
+      }),
+    )
+
+    expect(response.status).toBe(410)
+    expect(response.cookies.get(CART_COOKIE)?.maxAge).toBe(0)
+  })
+
+  it.each([
+    ["DELETE", () => DELETE(deleteRequest(), { params: Promise.resolve({ lineId: "line_123" }) })],
+    [
+      "PATCH",
+      () =>
+        PATCH(patchRequest(JSON.stringify({ quantity: 2 })), {
+          params: Promise.resolve({ lineId: "line_123" }),
+        }),
+    ],
+  ])(
+    "lets %s recover instead of blocking removal of the offending line",
+    async (_method, call) => {
+      // The retrieve guard runs before the mutation, so this is the exact path
+      // that used to trap the shopper for the 30-day cookie lifetime.
+      retrieve.mockRejectedValue(unrecoverable())
+
+      const response = await call()
+
+      expect(response.status).toBe(410)
+      await expect(response.json()).resolves.toEqual({
+        error: { code: "cart_unrecoverable" },
+      })
+      expect(response.cookies.get(CART_COOKIE)?.maxAge).toBe(0)
+    },
+  )
 })
 
 describe("cart BFF", () => {

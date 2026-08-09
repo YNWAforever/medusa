@@ -1,11 +1,9 @@
 "use client"
 
-import Link from "next/link"
 import React, { useEffect, useMemo, useState } from "react"
 import type { BranchView } from "../lib/medusa/branches"
 import type { CatalogProduct, CatalogVariant, Locale } from "../lib/medusa/contracts"
 import { formatCatalogMoney } from "../lib/catalog-filters"
-import { localeHref } from "../lib/locales"
 import { AddToCartButton } from "./add-to-cart-button"
 import { useOptionalCart } from "./cart-provider"
 
@@ -15,6 +13,22 @@ export type BranchAvailabilityState =
   | { status: "error" }
   | { status: "ready"; branches: BranchView[] }
 
+export async function startPhotoPrintJob(
+  locale: Locale,
+  fetcher: typeof fetch = fetch,
+  navigate: (href: string) => void = (href) => window.location.assign(href),
+): Promise<void> {
+  const response = await fetcher("/api/photo-jobs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ locale }),
+    credentials: "same-origin",
+  })
+  const body = await response.json().catch(() => null) as { photo_job?: { id?: string } } | null
+  const id = body?.photo_job?.id
+  if (!response.ok || !id) throw new Error("photo_job_unavailable")
+  navigate(`/${locale}/photo-jobs/${encodeURIComponent(id)}`)
+}
 function optionId(name: string, index: number): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
   return "purchase-option-" + (slug || "option") + "-" + (index + 1)
@@ -99,7 +113,7 @@ export function BranchAvailability({
               <strong>{branch.name}</strong>
               <span>{branch.district}</span>
             </div>
-            <span className="staging-label">{branch.stagingLabel}</span>
+            {branch.stagingLabel ? <span className="staging-label">{branch.stagingLabel}</span> : null}
             <span className={branch.compatible ? "availability available" : "availability unavailable"}>
               {branch.compatible
                 ? locale === "zh-HK" ? "此購物車可於此取貨" : "Available for this cart"
@@ -145,6 +159,8 @@ export function ProductPurchasePanel({
   const [branchState, setBranchState] = useState<BranchAvailabilityState>(
     cartId && product.commerceMode === "retail" ? { status: "loading" } : { status: "idle" },
   )
+
+  const [photoStartState, setPhotoStartState] = useState<"idle" | "loading" | "error">("idle")
 
   useEffect(() => {
     if (!cartId || product.commerceMode !== "retail") {
@@ -250,9 +266,19 @@ export function ProductPurchasePanel({
         </>
       ) : product.commerceMode === "photo_print" ? (
         photoPrintEnabled ? (
-          <Link className="button primary wide" href={localeHref(locale, "/services/photo-print/editor")}>
-            {locale === "zh-HK" ? "開始相片沖印" : "Start photo print"}
-          </Link>
+          <div className="photo-print-entry">
+            <button className="button primary wide" type="button" disabled={photoStartState === "loading"} onClick={() => {
+              setPhotoStartState("loading")
+              void startPhotoPrintJob(locale).catch(() => setPhotoStartState("error"))
+            }}>
+              {photoStartState === "loading"
+                ? locale === "zh-HK" ? "正在建立相片工作…" : "Creating photo job…"
+                : locale === "zh-HK" ? "開始相片沖印" : "Start photo print"}
+            </button>
+            {photoStartState === "error" ? <p className="availability-note error" role="alert">
+              {locale === "zh-HK" ? "暫時未能建立相片工作，請再試一次。" : "We could not create a photo job. Please try again."}
+            </p> : null}
+          </div>
         ) : (
           <p className="availability-note">
             {locale === "zh-HK" ? "相片沖印網上落單暫未開放。" : "Photo print ordering is not available yet."}

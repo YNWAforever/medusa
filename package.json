@@ -20,6 +20,7 @@
     "dev": "npm run dev --workspace @fotomax/storefront",
     "dev:medusa": "npm run dev --workspace @fotomax/medusa",
     "seed:medusa": "npm run seed --workspace @fotomax/medusa",
+    "admin:create": "npm run create-admin --workspace @fotomax/medusa",
     "infra:up": "docker compose up -d --wait postgres redis",
     "infra:down": "docker compose down",
     "db:migrate": "npm run db:migrate --workspace @fotomax/medusa",

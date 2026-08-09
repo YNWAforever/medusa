@@ -1,13 +1,33 @@
-name: Fotomax Phase 2A
+name: Fotomax Phase 2B
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    branches: [main, codex/fotomax-storefront]
+    branches:
+      - main
+      - codex/fotomax-foundation
+      - codex/fotomax-storefront
+      - codex/fotomax-phase-2b-verification-deploy
+
+# The default GITHUB_TOKEN scope on a fork of medusajs/medusa can be broad; this
+# job only needs to read the checkout.
+permissions:
+  contents: read
+
+# Two pushes would otherwise race against the same Postgres/Redis service ports,
+# the same seeded database, and the same MinIO container name.
+concurrency:
+  group: fotomax-verify-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Measured on run 30251084509: npm ci 25m on a cold cache, canonical checks
+    # 2m, container build 18m+. A full pass lands around 60m, so this is a
+    # runaway backstop rather than a target.
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:16-alpine
@@ -45,6 +65,14 @@ jobs:
       COOKIE_SECRET: fotomax-ci-cookie-secret
       MEDUSA_BACKEND_URL: http://localhost:9000
       STOREFRONT_SESSION_SECRET: fotomax-ci-session-secret
+      PHOTO_STORAGE_PROVIDER: "s3"
+      PHOTO_STORAGE_ENDPOINT: http://localhost:9002
+      PHOTO_STORAGE_REGION: us-east-1
+      PHOTO_STORAGE_BUCKET: fotomax-photo-private
+      PHOTO_STORAGE_ACCESS_KEY: fotomax_minio
+      PHOTO_STORAGE_SECRET_KEY: fotomax_minio_local_only
+      PHOTO_STORAGE_FORCE_PATH_STYLE: "true"
+      PHOTO_STORAGE_SERVER_SIDE_ENCRYPTION: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,6 +80,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Start private S3-compatible photo storage
+        shell: bash
+        run: |
+          docker run --detach --name fotomax-minio             --publish 9002:9000             --env MINIO_ROOT_USER=fotomax_minio             --env MINIO_ROOT_PASSWORD=fotomax_minio_local_only             --env MINIO_API_CORS_ALLOW_ORIGIN=http://127.0.0.1:3100,http://localhost:3100             minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for attempt in {1..30}; do
+            curl --fail --silent http://localhost:9002/minio/health/live && break
+            if [ "$attempt" -eq 30 ]; then
+              docker logs fotomax-minio
+              exit 1
+            fi
+            sleep 2
+          done
+          docker run --rm --network host --entrypoint /bin/sh             minio/mc:RELEASE.2025-04-16T18-13-26Z -c             "mc alias set fotomax http://localhost:9002 fotomax_minio fotomax_minio_local_only &&
+             mc mb --ignore-existing fotomax/fotomax-photo-private &&
+             mc anonymous set none fotomax/fotomax-photo-private"
       - run: npm run db:migrate
       - run: npm run seed:medusa
       - run: npm run seed:medusa

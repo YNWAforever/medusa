@@ -11,6 +11,7 @@ const rawBranches = [{
   name: { en: "Central Staging Pickup", "zh-HK": "中環測試取貨點" },
   district: { en: "Central", "zh-HK": "中環" },
   leadTimeBusinessDays: 2, compatible: true, reasonCode: null, shippingOptionId: "so_central",
+  testOnly: true,
 }]
 
 function client(payload: unknown = { branches: rawBranches }): BranchStoreClient {
@@ -36,8 +37,21 @@ describe("storefront branch availability adapter", () => {
     ])
   })
 
+  it.each(["en", "zh-HK"] as const)(
+    "serves a real branch with no staging badge in %s",
+    async (locale) => {
+      const payload = { branches: [{ ...rawBranches[0], testOnly: false }] }
+
+      await expect(
+        getBranchAvailability("cart_123", locale, client(payload)),
+      ).resolves.toEqual([expect.objectContaining({ stagingLabel: null })])
+    },
+  )
+
   it.each([
     [{ branches: null }],
+    [{ branches: [{ ...rawBranches[0], testOnly: "yes" }] }],
+    [{ branches: [{ ...rawBranches[0], testOnly: undefined }] }],
     [{ branches: [{ ...rawBranches[0], compatible: "yes" }] }],
     [{ branches: [{ ...rawBranches[0], name: { en: "Only English" } }] }],
     [{ branches: [{ ...rawBranches[0], compatible: true, reasonCode: "retail_out_of_stock" }] }],

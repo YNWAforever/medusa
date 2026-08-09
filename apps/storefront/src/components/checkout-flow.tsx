@@ -54,12 +54,27 @@ function normalizeCheckout(value: CheckoutSeed): CheckoutView {
     fulfillment: null,
     stage: "contact",
     blockers: [],
+    contact: { email: null, firstName: null, lastName: null, phone: null, address: null },
     ...value,
   }
 }
 
 function initialContact(checkout: CheckoutView | null): ContactState {
-  return { ...emptyContact, email: checkout?.cart.email ?? "" }
+  // Rehydrate from what the shopper already submitted. Selecting pickup replaces
+  // the cart's shipping_address with the branch, so the saved copy in checkout
+  // metadata is the only place the delivery address survives.
+  const saved = checkout?.contact
+  return {
+    ...emptyContact,
+    email: saved?.email ?? checkout?.cart.email ?? "",
+    firstName: saved?.firstName ?? "",
+    lastName: saved?.lastName ?? "",
+    phone: saved?.phone ?? "",
+    address1: saved?.address?.address1 ?? "",
+    address2: saved?.address?.address2 ?? "",
+    city: saved?.address?.city ?? "",
+    postalCode: saved?.address?.postalCode ?? "",
+  }
 }
 
 function optionReason(option: ShippingOptionView, locale: Locale): string {

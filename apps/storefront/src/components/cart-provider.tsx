@@ -10,7 +10,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react"
-import { createCartRefreshGuard } from "../lib/cart-state"
+import { createCartRefreshGuard, groupVisualCartLines } from "../lib/cart-state"
 import type { CartLineView, CartView } from "../lib/medusa/contracts"
 
 interface CartContextValue {
@@ -47,6 +47,15 @@ class CartRequestError extends Error {
   constructor(readonly code: string) {
     super(code)
   }
+}
+
+/**
+ * Both codes mean the server dropped the cart cookie: the cart either expired or
+ * could not be projected. Either way the recovery is the same — reset to empty
+ * and let the next add-to-cart create a fresh cart.
+ */
+function isResettableCart(code: string): boolean {
+  return code === "cart_expired" || code === "cart_unrecoverable"
 }
 
 async function cartRequest(path: string, init?: RequestInit): Promise<CartView> {
@@ -121,7 +130,7 @@ export function CartProvider({
       setCart(await cartRequest(path, init))
       setMutationError(null)
     } catch (error) {
-      if (error instanceof CartRequestError && error.code === "cart_expired") {
+      if (error instanceof CartRequestError && isResettableCart(error.code)) {
         setCart(emptyCart)
         if (path === "/api/cart/items" && init.method === "POST") {
           try {
@@ -154,16 +163,18 @@ export function CartProvider({
     setIsMutating(true)
     try {
       let nextCart = cart
-      for (const item of cart.items) {
+      for (const group of groupVisualCartLines(cart.items)) {
+        const line = group.lines[0]
+        if (!line) continue
         nextCart = await cartRequest(
-          "/api/cart/items/" + encodeURIComponent(item.id),
+          "/api/cart/items/" + encodeURIComponent(line.id),
           { method: "DELETE" },
         )
         setCart(nextCart)
       }
       setMutationError(null)
     } catch (error) {
-      if (error instanceof CartRequestError && error.code === "cart_expired") {
+      if (error instanceof CartRequestError && isResettableCart(error.code)) {
         setCart(emptyCart)
       }
       setMutationError(error instanceof Error ? error.message : "cart_unavailable")

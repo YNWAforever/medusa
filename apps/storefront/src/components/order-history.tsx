@@ -7,6 +7,7 @@ import type { OrderView } from "../lib/medusa/auth"
 import type { Locale } from "../lib/medusa/contracts"
 import { formatCatalogMoney } from "../lib/catalog-filters"
 import { localeHref } from "../lib/locales"
+import { useOptionalCart } from "./cart-provider"
 
 export type OrderHistoryState =
   | { status: "loading" }
@@ -39,6 +40,7 @@ export function OrderHistoryView({ locale, state }: { locale: Locale; state: Ord
 
 export function OrderHistory({ locale }: { locale: Locale }) {
   const router = useRouter()
+  const cart = useOptionalCart()
   const [state, setState] = useState<OrderHistoryState>({ status: "loading" })
 
   useEffect(() => {
@@ -62,6 +64,9 @@ export function OrderHistory({ locale }: { locale: Locale }) {
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+    // Logout drops the cart cookie too, so pull the now-empty cart into the
+    // drawer rather than leaving the signed-out customer's lines on screen.
+    await cart?.refresh()
     router.replace(localeHref(locale, "/account/login"))
     router.refresh()
   }

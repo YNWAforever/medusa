@@ -14,6 +14,7 @@ const deployedEnv = {
   COOKIE_SECRET: "cookie-secret",
   MEDUSA_STOREFRONT_URL: "https://shop.example.com",
   REDIS_URL: "redis://cache:6379",
+  DISABLE_MEDUSA_ADMIN: "false",
 } as const
 
 describe("Medusa infrastructure modules", () => {
