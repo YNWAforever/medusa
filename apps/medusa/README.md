@@ -46,6 +46,7 @@ ADMIN_CORS=http://localhost:9000
 AUTH_CORS=http://localhost:9000,http://localhost:3000,http://localhost:8000
 JWT_SECRET=fotomax-local-jwt-secret
 COOKIE_SECRET=fotomax-local-cookie-secret
+MEDUSA_STOREFRONT_URL=http://localhost:3000
 ```
 
 The runtime resolver's fallback JWT and cookie secrets are local-only conveniences. Non-local startup requires strong environment-provided secrets as described below. This skeleton is not production-ready and does not provision a database or rotate secrets.
@@ -61,7 +62,10 @@ For every other environment name, including `preview`, `staging`, and `productio
 - `AUTH_CORS`
 - `JWT_SECRET`
 - `COOKIE_SECRET`
+- `MEDUSA_STOREFRONT_URL`
 - `DISABLE_MEDUSA_ADMIN` (must be `true` or `false`)
+
+The Admin storefront URL is compiled into the Medusa Admin bundle through admin.storefrontUrl. Rebuild the Admin bundle after changing MEDUSA_STOREFRONT_URL; changing the runtime variable alone does not change an already-built Admin asset.
 
 This prevents local credentials or localhost origins from silently reaching a deployed environment.
 

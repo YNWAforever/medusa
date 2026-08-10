@@ -9,6 +9,7 @@ const explicitRuntimeEnv = {
   AUTH_CORS: "https://shop.example.com,https://admin.example.com",
   JWT_SECRET: "production-jwt-secret",
   COOKIE_SECRET: "production-cookie-secret",
+  MEDUSA_STOREFRONT_URL: " https://shop.example.com ",
 }
 
 const requiredVariables = [
@@ -17,6 +18,7 @@ const requiredVariables = [
   "AUTH_CORS",
   "JWT_SECRET",
   "COOKIE_SECRET",
+  "MEDUSA_STOREFRONT_URL",
 ] as const
 
 describe("Medusa runtime environment", () => {
@@ -39,6 +41,7 @@ describe("Medusa runtime environment", () => {
         AUTH_CORS: "https://staging.example.com",
         JWT_SECRET: "jwt-secret",
         COOKIE_SECRET: "cookie-secret",
+        MEDUSA_STOREFRONT_URL: "https://staging.example.com",
         REDIS_URL: "redis://cache:6379",
         MEDUSA_WORKER_MODE: "worker",
         DISABLE_MEDUSA_ADMIN: "true",
@@ -106,6 +109,7 @@ describe("Medusa runtime environment", () => {
           "http://localhost:9000,http://localhost:3000,http://localhost:8000",
         jwtSecret: "fotomax-local-jwt-secret",
         cookieSecret: "fotomax-local-cookie-secret",
+        storefrontUrl: "http://localhost:3000",
       })
     },
   )
@@ -138,6 +142,7 @@ describe("Medusa runtime environment", () => {
       authCors: explicitRuntimeEnv.AUTH_CORS,
       jwtSecret: explicitRuntimeEnv.JWT_SECRET,
       cookieSecret: explicitRuntimeEnv.COOKIE_SECRET,
+      storefrontUrl: "https://shop.example.com",
     })
   })
 })
